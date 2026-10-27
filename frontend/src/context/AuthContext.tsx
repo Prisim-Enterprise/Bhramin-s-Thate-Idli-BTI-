@@ -17,7 +17,7 @@ const AuthContext = createContext<Auth | null>(null)
 
 // The role lives in the user's app_metadata, which only an admin can change in Supabase.
 // Users without a role get Auditor (view only).
-function roleOf(session: Session | null): RoleId {
+export function roleOf(session: Session | null): RoleId {
   const r = session?.user.app_metadata?.role
   return ROLES.some((x) => x.id === r) ? (r as RoleId) : 'auditor'
 }

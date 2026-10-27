@@ -2,7 +2,8 @@
 
 | Folder | What's in it |
 |---|---|
-| [frontend/](frontend/) | React app: Centre Kitchen Dashboard (`/admin`) and Prisim Control Panel (`/control`) |
+| [frontend/](frontend/) | React app: Centre Kitchen Dashboard (opens after sign-in) |
+| [control-panel/](control-panel/) | Prisim Control Panel – separate dashboard (not started yet) |
 | [backend/](backend/) | API server (not started yet) |
 
 deployed in vercel ( frontend ) 
