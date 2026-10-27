@@ -6,6 +6,7 @@ import {
   Plug, Scale, Calculator, ChevronRight, ChefHat, SlidersHorizontal, Menu, X, Bell, LogOut, type LucideIcon,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useAuth } from '../context/AuthContext'
 import { IS_DEMO } from '../config'
 import Logo, { RESTO_NAME } from './Logo'
 import { ROLES, type ModuleId } from '../data/mock'
@@ -117,6 +118,8 @@ const PORTALS = {
 
 export default function Layout({ portal, children }: { portal: keyof typeof PORTALS; children: ReactNode }) {
   const { role, can } = useApp()
+  const auth = useAuth()
+  const initials = (auth.email ?? 'AL').slice(0, 2).toUpperCase()
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const p = PORTALS[portal]
@@ -174,7 +177,7 @@ export default function Layout({ portal, children }: { portal: keyof typeof PORT
         </nav>
 
         <div className="mt-4 space-y-1 border-t border-white/10 pt-3">
-          <button onClick={() => navigate('/')} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white">
+          <button onClick={async () => { await auth.signOut(); navigate('/') }} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white">
             <LogOut size={16} /> Sign out
           </button>
         </div>
@@ -193,7 +196,7 @@ export default function Layout({ portal, children }: { portal: keyof typeof PORT
             <button className="relative text-slate-500 hover:text-slate-800" aria-label="Notifications">
               <Bell size={18} /><span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-rose-500" />
             </button>
-            <div title={`Signed in as ${ROLES.find((r) => r.id === role)?.name}`} className="grid h-8 w-8 place-items-center rounded-full bg-slate-800 text-xs font-semibold text-white">AL</div>
+            <div title={`Signed in as ${auth.email ? auth.email + ' · ' : ''}${ROLES.find((r) => r.id === role)?.name}`} className="grid h-8 w-8 place-items-center rounded-full bg-slate-800 text-xs font-semibold text-white">{initials}</div>
           </div>
         </header>
         <main className="flex-1 p-4 lg:p-6">{children}</main>

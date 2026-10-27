@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import Layout, { HUBS, type HubId } from './components/Layout'
 import { NoAccess } from './components/ui'
 import { useApp } from './context/AppContext'
+import { useAuth } from './context/AuthContext'
 import { MODULES, type ModuleId } from './data/mock'
 
 import Login from './pages/Login'
@@ -99,6 +100,10 @@ function BackLink({ hub }: { hub: HubId }) {
 }
 
 function Portal({ portal, routes }: { portal: 'admin' | 'control'; routes: R[] }) {
+  const auth = useAuth()
+  // With Supabase on, only signed-in users can open a portal.
+  if (auth.enabled && auth.loading) return null
+  if (auth.enabled && !auth.session) return <Navigate to="/" replace />
   return (
     <Layout portal={portal}>
       <Routes>
