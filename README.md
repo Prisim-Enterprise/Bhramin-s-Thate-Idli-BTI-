@@ -6,7 +6,7 @@
 | [backend/](backend/) | API server (not started yet) |
 
 deployed in vercel ( frontend ) 
-https://frontend-omega-ochre-34.vercel.app/admin
+https://bhramin-s-thate-idli-bti.vercel.app/
 
 ## Run the frontend
 
