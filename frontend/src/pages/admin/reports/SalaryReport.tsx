@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { CheckCircle2, PlayCircle } from 'lucide-react'
+import { CheckCircle2, PlayCircle, Wallet } from 'lucide-react'
 import { Badge, Button, Card } from '../../../components/ui'
-import { Big, ReportHeader, Summary, Tile, downloadCsv, money } from '../../../components/report'
+import { Big, EmptyReport, ReportHeader, Summary, Tile, downloadCsv, money } from '../../../components/report'
 import { useApp } from '../../../context/AppContext'
 import { BRANCH_COSTS, EMPLOYEES, ROLES, branchName, computePay } from '../../../data/mock'
 
@@ -32,6 +32,11 @@ export default function SalaryReport() {
   ])
 
   const [stageLabel, stageTone] = STAGE[stage]
+
+  if (!staff.length) {
+    return <EmptyReport title="Salary Report" period="October 2026" icon={Wallet}
+      text="Salaries show up here once staff and their monthly pay are added." />
+  }
 
   return (
     <div className="mx-auto max-w-7xl">

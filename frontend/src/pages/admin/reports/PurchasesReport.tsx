@@ -1,6 +1,6 @@
-import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
+import { ArrowDownRight, ArrowUpRight, Minus, PackagePlus } from 'lucide-react'
 import { Badge, Card } from '../../../components/ui'
-import { Big, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money } from '../../../components/report'
+import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money } from '../../../components/report'
 import { PRICE_CHANGES, PURCHASE_ORDERS, VENDOR_SPEND } from '../../../data/mock'
 
 const PO_STATUS: Record<string, [string, 'blue' | 'amber' | 'green' | 'slate']> = {
@@ -29,6 +29,11 @@ export default function PurchasesReport() {
     ['Vendor', 'Supplies', 'Bought', 'Paid', 'Still to pay', 'Payment terms', 'Pay by'],
     ...vendors.map((v) => [v.vendor, v.category, v.bought, v.paid, v.bought - v.paid, v.terms, v.dueBy]),
   ])
+
+  if (!VENDOR_SPEND.length && !PURCHASE_ORDERS.length && !PRICE_CHANGES.length) {
+    return <EmptyReport title="Purchases Report" period="October 2026" icon={PackagePlus}
+      text="What you buy from vendors, what you still owe them and price changes show up here once purchases are recorded." />
+  }
 
   return (
     <div className="mx-auto max-w-7xl">

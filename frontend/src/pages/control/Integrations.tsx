@@ -8,16 +8,16 @@ export default function Integrations() {
   const { can } = useApp()
   const edit = can('settings', 'edit')
   const [conns, setConns] = useState([
-    { name: 'POS (Petpooja)', desc: 'Pulls bills and item sales every 5 min', on: true },
-    { name: 'Swiggy', desc: 'Orders, payouts and commission', on: true },
-    { name: 'Zomato', desc: 'Orders, payouts and commission', on: true },
+    { name: 'POS (Petpooja)', desc: 'Pulls bills and item sales every 5 min', on: false },
+    { name: 'Swiggy', desc: 'Orders, payouts and commission', on: false },
+    { name: 'Zomato', desc: 'Orders, payouts and commission', on: false },
     { name: 'Tally Prime export', desc: 'Push vouchers and ledgers nightly', on: false },
     { name: 'Bank feed (HDFC)', desc: 'Match payments to bills', on: false },
-    { name: 'WhatsApp alerts', desc: 'Low stock and approval alerts to managers', on: true },
+    { name: 'WhatsApp alerts', desc: 'Low stock and approval alerts to managers', on: false },
   ])
   const [models, setModels] = useState([
-    { name: 'Bill OCR', model: 'Prisim Vision v2', on: true, note: 'Reads vendor bills uploaded by kitchen' },
-    { name: 'Demand forecast', model: 'Prisim Forecast', on: true, note: 'Suggests tomorrow’s indent per branch' },
+    { name: 'Bill OCR', model: 'Prisim Vision v2', on: false, note: 'Reads vendor bills uploaded by kitchen' },
+    { name: 'Demand forecast', model: 'Prisim Forecast', on: false, note: 'Suggests tomorrow’s indent per branch' },
     { name: 'Food cost anomaly', model: 'Prisim Watch', on: false, note: 'Flags dishes whose cost jumps suddenly' },
     { name: 'Ask Prisim (chat)', model: 'Claude', on: false, note: 'Ask questions about sales and costs in plain English' },
   ])
@@ -65,13 +65,13 @@ export default function Integrations() {
             <tr key={b.id}>
               <td className="font-medium">{b.name}</td>
               <td>
-                <span className={`flex items-center gap-1.5 ${b.status === 'online' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                  {b.status === 'online' ? <Wifi size={14} /> : <WifiOff size={14} />} {b.status}
+                <span className={`flex items-center gap-1.5 ${b.status === 'online' ? 'text-emerald-600' : b.status === 'offline' ? 'text-rose-600' : 'text-slate-500'}`}>
+                  {b.status === 'online' ? <Wifi size={14} /> : <WifiOff size={14} />} {b.status.replace('_', ' ')}
                 </span>
               </td>
-              <td className="text-slate-500">{b.status === 'online' ? `${i + 1} min ago` : '2 hours ago'}</td>
+              <td className="text-slate-500">—</td>
               <td className="text-slate-500">{b.id === 'CK' ? 'Kitchen tablet + scanner' : 'POS terminal'}</td>
-              <td className="tabular-nums">{b.status === 'online' ? `${40 + i * 12} ms` : '—'}</td>
+              <td className="tabular-nums">—</td>
             </tr>
           ))}
         </Table>

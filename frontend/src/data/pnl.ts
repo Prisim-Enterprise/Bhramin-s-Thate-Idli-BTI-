@@ -8,12 +8,12 @@ export type Period = 'this' | 'last'
 // Builds the P&L for a set of outlets. Central kitchen/head office costs are
 // shared out by each outlet's share of total sales.
 export function buildPnl(ids: string[], period: Period) {
-  const salesOf = (id: string) => (period === 'this' ? OUTLETS.find((b) => b.id === id)!.sales : LAST_MONTH[id].sales)
-  const fcOf = (id: string) => (period === 'this' ? OUTLETS.find((b) => b.id === id)!.foodCost : LAST_MONTH[id].foodCost)
+  const salesOf = (id: string) => (period === 'this' ? OUTLETS.find((b) => b.id === id)?.sales ?? 0 : LAST_MONTH[id]?.sales ?? 0)
+  const fcOf = (id: string) => (period === 'this' ? OUTLETS.find((b) => b.id === id)?.foodCost ?? 0 : LAST_MONTH[id]?.foodCost ?? 0)
   const allSales = OUTLETS.reduce((s, b) => s + salesOf(b.id), 0)
 
   const sum = (f: (id: string) => number) => ids.reduce((s, id) => s + f(id), 0)
-  const c = (k: keyof (typeof BRANCH_COSTS)[string]) => sum((id) => BRANCH_COSTS[id][k])
+  const c = (k: keyof (typeof BRANCH_COSTS)[string]) => sum((id) => BRANCH_COSTS[id]?.[k] ?? 0)
 
   const sales = sum(salesOf)
   const dineIn = sales * (1 - AGGREGATOR_SHARE)
@@ -21,7 +21,7 @@ export function buildPnl(ids: string[], period: Period) {
   const food = sum((id) => salesOf(id) * (fcOf(id) / 100))
   const gross = sales - food
   const commission = online * AGGREGATOR_COMMISSION
-  const central = CENTRAL_TOTAL * (sales / allSales)
+  const central = allSales ? CENTRAL_TOTAL * (sales / allSales) : 0
 
   const expenses = [
     { key: 'salaries', label: 'Salaries & wages', v: c('salaries') },

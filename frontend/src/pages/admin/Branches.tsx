@@ -23,7 +23,7 @@ export default function Branches() {
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500">{x.id === 'CK' ? 'Central kitchen' : 'Outlet'}</span>
-              <span className={`h-2 w-2 rounded-full ${x.status === 'online' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+              <span className={`h-2 w-2 rounded-full ${x.status === 'online' ? 'bg-emerald-500' : x.status === 'offline' ? 'bg-rose-500' : 'bg-slate-300'}`} />
             </div>
             <p className="mt-1 flex items-center gap-1.5 font-medium text-slate-900">{x.id === 'CK' && <ChefHat size={14} />}{x.name}</p>
             <p className="text-xs text-slate-500">{x.id === 'CK' ? 'Supplies all outlets' : inr(x.sales) + ' MTD'}</p>
@@ -66,7 +66,7 @@ export default function Branches() {
         <>
           <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
             <Stat label="Sales MTD" value={inr(b.sales)} />
-            <Stat label="Food cost" value={b.foodCost + '%'} tone={b.foodCost > 32 ? 'red' : 'green'} />
+            <Stat label="Food cost" value={b.sales ? b.foodCost + '%' : '—'} tone={!b.sales ? 'brand' : b.foodCost > 32 ? 'red' : 'green'} />
             <Stat label="Open indents" value={String(INDENTS.filter((i) => i.branch === sel && i.status !== 'issued').length)} tone="amber" />
             <Stat label="Expenses" value={inr(EXPENSES.filter((e) => e.branch === sel).reduce((s, e) => s + e.amount, 0))} />
           </div>

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
+import type { LucideIcon } from 'lucide-react'
 import { Download, Info, Lightbulb, Printer } from 'lucide-react'
-import { Button } from './ui'
+import { Button, Card, EmptyState } from './ui'
 import { inr } from '../data/mock'
 import { IS_SHARE } from '../config'
 
@@ -97,4 +98,23 @@ export function downloadCsv(filename: string, rows: (string | number)[][]) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/** A report page with nothing to show yet. Keeps the title and any actions (like uploads). */
+export function EmptyReport({ title, period, icon, text, actions, children }: {
+  title: string; period: string; icon: LucideIcon; text: ReactNode; actions?: ReactNode; children?: ReactNode
+}) {
+  return (
+    <div className="mx-auto max-w-7xl">
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
+          <p className="mt-1 text-sm text-slate-500">{period}</p>
+        </div>
+        {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+      </div>
+      <Card><EmptyState icon={icon} title="Nothing to report yet" text={text} /></Card>
+      {children && <div className="mt-4">{children}</div>}
+    </div>
+  )
 }

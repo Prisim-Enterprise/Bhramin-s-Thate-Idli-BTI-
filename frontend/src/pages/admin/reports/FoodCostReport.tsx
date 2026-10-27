@@ -1,6 +1,7 @@
+import { BookOpenCheck } from 'lucide-react'
 import { useState } from 'react'
 import { Badge, Card } from '../../../components/ui'
-import { Big, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money, per100 } from '../../../components/report'
+import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money, per100 } from '../../../components/report'
 import { RECIPES } from '../../../data/mock'
 import { OUTLETS } from '../../../data/pnl'
 import TallyFoodCosting from '../FoodCosting'
@@ -45,6 +46,11 @@ export default function FoodCostReport() {
       ))}
     </div>
   )
+
+  if (!RECIPES.length) {
+    return <EmptyReport title="Food Cost Report" period="October 2026" icon={BookOpenCheck}
+      text="Add your dishes with their selling price and ingredient cost, and record how many were sold, to see food cost here." />
+  }
 
   return (
     <div className="mx-auto max-w-7xl">

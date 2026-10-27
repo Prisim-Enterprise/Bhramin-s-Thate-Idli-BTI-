@@ -12,7 +12,9 @@ export default function KitchenHub() {
 
   const stats: Record<string, HubStat> = {
     '/admin/kitchen/indents': { value: String(waiting), caption: waiting === 1 ? 'indent waiting' : 'indents waiting', tone: waiting ? 'warn' : 'good' },
-    '/admin/kitchen/storage': out || low
+    '/admin/kitchen/storage': !STOCK.length
+      ? { value: 'Empty', caption: 'no stock recorded yet' }
+      : out || low
       ? { value: `${out} out · ${low} low`, caption: 'items need restocking', tone: out ? 'bad' : 'warn' }
       : { value: 'All good', caption: 'everything in stock', tone: 'good' },
     '/admin/kitchen/purchase-orders': { value: String(openPOs.length), caption: `open orders · ${money(openValue, false)}` },

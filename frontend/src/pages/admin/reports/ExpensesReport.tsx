@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Check, X } from 'lucide-react'
+import { Check, Receipt, X } from 'lucide-react'
 import { Badge, Button, Card } from '../../../components/ui'
-import { Big, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money, per100 } from '../../../components/report'
+import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money, per100 } from '../../../components/report'
 import { useApp } from '../../../context/AppContext'
 import { EXPENSES, branchName } from '../../../data/mock'
 import { OUTLETS, buildPnl } from '../../../data/pnl'
@@ -40,6 +40,11 @@ export default function ExpensesReport() {
     ...lines.map((l) => [l.label, Math.round(l.v), per100(l.v, p.sales).replace('₹', '')]),
     ['Profit left', Math.round(p.net), per100(p.net, p.sales).replace('₹', '')],
   ])
+
+  if (!spent && !claims.length) {
+    return <EmptyReport title="Expenses Report" period="October 2026" icon={Receipt}
+      text="Running costs and expense claims from outlets show up here once they are recorded." />
+  }
 
   return (
     <div className="mx-auto max-w-7xl">

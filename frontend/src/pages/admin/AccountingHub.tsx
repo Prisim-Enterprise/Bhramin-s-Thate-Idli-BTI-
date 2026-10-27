@@ -16,7 +16,7 @@ export default function AccountingHub() {
   const toCheck = BILLS.filter((b) => b.status === 'extracted' || b.status === 'failed').length
 
   const stats: Record<string, HubStat> = {
-    '/admin/accounting/pnl': { value: money(p.net), caption: p.net >= 0 ? 'profit this month' : 'loss this month', tone: p.net >= 0 ? 'good' : 'bad' },
+    '/admin/accounting/pnl': !p.sales && !p.opex ? { value: '—', caption: 'no figures yet' } : { value: money(p.net), caption: p.net >= 0 ? 'profit this month' : 'loss this month', tone: p.net >= 0 ? 'good' : 'bad' },
     '/admin/accounting/sales': { value: money(p.sales), caption: 'sold this month' },
     '/admin/accounting/expenses': { value: money(p.opex + p.depreciation), caption: 'running costs' },
     '/admin/accounting/purchases': { value: money(owed), caption: 'still to pay vendors', tone: owed ? 'warn' : 'good' },

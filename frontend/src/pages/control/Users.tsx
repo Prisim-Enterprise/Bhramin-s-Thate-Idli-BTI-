@@ -71,6 +71,7 @@ export default function Users() {
                 <td>{edit && <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setNotice(`Password reset link sent to ${u.email}`)}>Reset</Button>}</td>
               </tr>
             ))}
+            {!users.length && <tr><td colSpan={7} className="!py-6 text-center text-slate-500">No users yet. Use “Add user” to give someone a login.</td></tr>}
           </Table>
         </Card>
 

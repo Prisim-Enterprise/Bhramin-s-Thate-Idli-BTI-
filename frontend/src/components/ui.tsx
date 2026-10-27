@@ -172,3 +172,15 @@ export function NoAccess({ module }: { module: string }) {
     </div>
   )
 }
+
+/** Shown where a list or report has no records yet. */
+export function EmptyState({ icon: Icon, title, text, children }: { icon?: LucideIcon; title: string; text?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="flex flex-col items-center px-6 py-12 text-center">
+      {Icon && <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#fbf3e4] text-[#7a2228]"><Icon size={24} /></span>}
+      <p className="mt-3 font-semibold text-slate-900">{title}</p>
+      {text && <p className="mt-1 max-w-md text-sm text-slate-500">{text}</p>}
+      {children && <div className="mt-4 flex flex-wrap justify-center gap-2">{children}</div>}
+    </div>
+  )
+}

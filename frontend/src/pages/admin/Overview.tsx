@@ -53,7 +53,7 @@ export default function Overview() {
   const totalSales = outlets.reduce((s, b) => s + b.sales, 0)
   const revenue = RECIPES.reduce((s, r) => s + r.price * r.sold, 0)
   const cost = RECIPES.reduce((s, r) => s + r.cost * r.sold, 0)
-  const foodCostPct = (cost / revenue) * 100
+  const foodCostPct = revenue ? (cost / revenue) * 100 : 0
   const stockValue = STOCK.reduce((s, x) => s + x.qty * x.avgCost, 0)
 
   const billsToReview = BILLS.filter((b) => b.status === 'extracted' || b.status === 'failed')
@@ -106,12 +106,12 @@ export default function Overview() {
       {/* Key numbers */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kpi to="/admin/branches" icon={IndianRupee} label="Sales this month" value={inr(totalSales)} note={`Across ${outlets.length} outlets`} />
-        <Kpi to="/admin/accounting/costing" icon={Percent} label="Food cost" value={foodCostPct.toFixed(1) + '%'}
-          tone={foodCostPct > FOOD_COST_TARGET ? 'red' : 'green'}
-          note={foodCostPct > FOOD_COST_TARGET ? `Above ${FOOD_COST_TARGET}% target` : `Within ${FOOD_COST_TARGET}% target ✓`} />
-        <Kpi to="/admin/accounting/costing" icon={TrendingUp} label="Gross margin" value={(100 - foodCostPct).toFixed(1) + '%'} note={`${inr(revenue - cost)} profit on food`} tone="green" />
+        <Kpi to="/admin/accounting/costing" icon={Percent} label="Food cost" value={revenue ? foodCostPct.toFixed(1) + '%' : '—'}
+          tone={!revenue ? 'slate' : foodCostPct > FOOD_COST_TARGET ? 'red' : 'green'}
+          note={!revenue ? 'No dish sales yet' : foodCostPct > FOOD_COST_TARGET ? `Above ${FOOD_COST_TARGET}% target` : `Within ${FOOD_COST_TARGET}% target ✓`} />
+        <Kpi to="/admin/accounting/costing" icon={TrendingUp} label="Gross margin" value={revenue ? (100 - foodCostPct).toFixed(1) + '%' : '—'} note={revenue ? `${inr(revenue - cost)} profit on food` : 'No dish sales yet'} tone={revenue ? 'green' : 'slate'} />
         <Kpi to="/admin/kitchen/storage" icon={Warehouse} label="Stock in kitchen" value={inr(stockValue)}
-          note={outOfStock.length ? `${outOfStock.length} items out of stock` : 'All items in stock'} tone={outOfStock.length ? 'red' : 'slate'} />
+          note={!STOCK.length ? 'No stock recorded yet' : outOfStock.length ? `${outOfStock.length} items out of stock` : 'All items in stock'} tone={outOfStock.length ? 'red' : 'slate'} />
       </div>
 
       {/* To-do list + outlet ranking */}
@@ -151,15 +151,15 @@ export default function Overview() {
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5 text-sm font-medium">
                     {b.name}
-                    {b.status !== 'online' && <span className="rounded bg-rose-50 px-1 text-[10px] font-medium text-rose-600">offline</span>}
+                    {b.status === 'offline' && <span className="rounded bg-rose-50 px-1 text-[10px] font-medium text-rose-600">offline</span>}
                   </span>
                   <span className="mt-1 block h-1.5 rounded bg-slate-100">
-                    <span className="block h-1.5 rounded bg-[#d9a441]" style={{ width: (b.sales / ranked[0].sales) * 100 + '%' }} />
+                    <span className="block h-1.5 rounded bg-[#d9a441]" style={{ width: (ranked[0].sales ? (b.sales / ranked[0].sales) * 100 : 0) + '%' }} />
                   </span>
                 </span>
                 <span className="text-right">
                   <span className="block text-sm tabular-nums">{inr(b.sales)}</span>
-                  <span className={`block text-[11px] ${b.foodCost > FOOD_COST_TARGET ? 'text-rose-600' : 'text-emerald-600'}`}>food cost {b.foodCost}%</span>
+                  <span className={`block text-[11px] ${!b.sales ? 'text-slate-400' : b.foodCost > FOOD_COST_TARGET ? 'text-rose-600' : 'text-emerald-600'}`}>{b.sales ? `food cost ${b.foodCost}%` : 'no sales yet'}</span>
                 </span>
               </li>
             ))}
@@ -169,7 +169,7 @@ export default function Overview() {
 
       {/* Weekly sales */}
       <Card className="mt-4" title="Sales this week"
-        actions={<span className="text-xs text-slate-500">{inr(weekTotal)} total · best day <b className="text-slate-700">{bestDay.day}</b></span>}>
+        actions={<span className="text-xs text-slate-500">{weekTotal ? <>{inr(weekTotal)} total · best day <b className="text-slate-700">{bestDay.day}</b></> : 'No sales recorded this week'}</span>}>
         <div className="h-64">
           <ResponsiveContainer>
             <BarChart data={weekly} margin={{ left: 0, right: 8 }}>
@@ -188,6 +188,7 @@ export default function Overview() {
         {can('ocr') && (
           <Card title="Latest bills" actions={<Link to="/admin/accounting/bills" className="text-xs font-medium text-[#7a2228]">All bills →</Link>} pad={false}>
             <ul className="divide-y divide-slate-100">
+              {!BILLS.length && <li className="px-4 py-6 text-center text-sm text-slate-500">No bills uploaded yet.</li>}
               {BILLS.slice(0, 5).map((b) => {
                 const [label, tone] = BILL_LABEL[b.status]
                 return (
@@ -207,6 +208,7 @@ export default function Overview() {
         {can('indent') && (
           <Card title="Indents from outlets" actions={<Link to="/admin/kitchen/indents" className="text-xs font-medium text-[#7a2228]">All indents →</Link>} pad={false}>
             <ul className="divide-y divide-slate-100">
+              {!INDENTS.length && <li className="px-4 py-6 text-center text-sm text-slate-500">No indents from outlets yet.</li>}
               {INDENTS.map((i) => {
                 const [label, tone] = INDENT_LABEL[i.status]
                 return (

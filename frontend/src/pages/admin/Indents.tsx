@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { ArrowRight, CheckCircle2, PackageCheck, ShoppingCart, XCircle } from 'lucide-react'
-import { Badge, Button, Card, PageHeader, Tabs } from '../../components/ui'
+import { ArrowRight, CheckCircle2, ClipboardList, PackageCheck, ShoppingCart, XCircle } from 'lucide-react'
+import { Badge, Button, Card, EmptyState, PageHeader, Tabs } from '../../components/ui'
 import { useApp } from '../../context/AppContext'
 import { INDENTS, STOCK, branchName, type IndentStatus } from '../../data/mock'
 
@@ -9,10 +9,23 @@ const FLOW = ['Indent from branch', 'Storage check', 'Issue  /  Purchase order',
 export default function Indents() {
   const { can } = useApp()
   const [indents, setIndents] = useState(INDENTS)
-  const [selId, setSelId] = useState(INDENTS[0].id)
+  const [selId, setSelId] = useState(INDENTS[0]?.id ?? '')
   const [tab, setTab] = useState<'open' | 'all'>('open')
-  const sel = indents.find((i) => i.id === selId)!
+  const sel = indents.find((i) => i.id === selId)
   const list = indents.filter((i) => tab === 'all' || i.status === 'pending' || i.status === 'partial')
+
+  // No indents yet.
+  if (!sel) {
+    return (
+      <>
+        <PageHeader title="Branch Indents" subtitle="Requests sent by each branch to the central kitchen" />
+        <Card>
+          <EmptyState icon={ClipboardList} title="No indents yet"
+            text="When an outlet asks the central kitchen for items, the request shows up here. You can then send the items from storage or raise a purchase order." />
+        </Card>
+      </>
+    )
+  }
 
   const check = sel.items.map((it) => {
     const s = STOCK.find((x) => x.item === it.item)

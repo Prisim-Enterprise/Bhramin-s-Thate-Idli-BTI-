@@ -52,6 +52,7 @@ export default function Purchases() {
             {vendors.map((v) => (
               <tr key={v.id}><td className="font-medium">{v.name}</td><td>{v.category}</td><td>{v.terms}</td><td className="font-mono text-xs">{v.gstin || '—'}</td></tr>
             ))}
+            {!vendors.length && <tr><td colSpan={4} className="!py-6 text-center text-slate-500">No vendors yet. Use “Add vendor”.</td></tr>}
           </Table>
         </Card>
       </div>
@@ -69,6 +70,7 @@ export default function Purchases() {
               </tr>
             )
           })}
+          {!PURCHASE_ORDERS.length && <tr><td colSpan={8} className="!py-6 text-center text-slate-500">No purchase orders yet.</td></tr>}
         </Table>
       </Card>
     </>

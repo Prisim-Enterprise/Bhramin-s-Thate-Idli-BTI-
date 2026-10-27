@@ -1,21 +1,39 @@
-import { useRef, useState } from 'react'
-import { ArrowRight, CheckCircle2, FileImage, RefreshCw, Trash2, Upload } from 'lucide-react'
-import { Badge, Button, Card, PageHeader, Tabs, inputCls } from '../../components/ui'
+import { useState } from 'react'
+import { ArrowRight, CheckCircle2, FileImage, RefreshCw, ScanLine, Trash2, Upload } from 'lucide-react'
+import { Badge, Button, Card, EmptyState, PageHeader, Tabs, inputCls } from '../../components/ui'
 import { useApp } from '../../context/AppContext'
-import { BILLS, branchName, inr, type Bill, type BillLine } from '../../data/mock'
+import { BILLS, BILL_SCRIPTS, branchName, inr, type Bill, type BillLine, type BillScript } from '../../data/mock'
+import UploadBillDialog from '../../components/UploadBillDialog'
 
 const STEPS = ['Bill from Kitchen', 'OCR extract', 'Review', 'Bill created']
 const stepOf = (s: Bill['status']) => ({ queued: 1, processing: 1, failed: 1, extracted: 2, verified: 3 })[s]
 
 const lineTotal = (l: BillLine) => l.qty * l.rate * (1 + l.gst / 100)
 
+// Stand-in for the OCR server: how long each kind of bill takes, how sure it is, and what it reads.
+const FAKE_OCR: Record<BillScript, { ms: number; confidence: number; lines: BillLine[] }> = {
+  'en-typed': { ms: 1500, confidence: 96, lines: [
+    { item: 'Tomato', qty: 10, unit: 'kg', rate: 32, gst: 0 },
+    { item: 'Onion', qty: 15, unit: 'kg', rate: 28, gst: 0 },
+  ] },
+  'en-hand': { ms: 2500, confidence: 87, lines: [
+    { item: 'Tomato', qty: 10, unit: 'kg', rate: 32, gst: 0 },
+    { item: 'Green chilli', qty: 2, unit: 'kg', rate: 60, gst: 0 },
+  ] },
+  'kn-hand': { ms: 3500, confidence: 82, lines: [
+    { item: 'Tomato', original: 'ಟೊಮೆಟೊ', qty: 10, unit: 'kg', rate: 32, gst: 0 },
+    { item: 'Onion', original: 'ಈರುಳ್ಳಿ', qty: 15, unit: 'kg', rate: 28, gst: 0 },
+    { item: 'Coriander', original: 'ಕೊತ್ತಂಬರಿ', qty: 2, unit: 'kg', rate: 80, gst: 0 },
+  ] },
+}
+
 export default function OcrBills() {
   const { can, ocrEnabled } = useApp()
   const [bills, setBills] = useState<Bill[]>(BILLS)
-  const [selId, setSelId] = useState(BILLS[0].id)
+  const [selId, setSelId] = useState(BILLS[0]?.id ?? '')
   const [tab, setTab] = useState<'all' | 'review' | 'credit' | 'other'>('all')
-  const fileRef = useRef<HTMLInputElement>(null)
-  const sel = bills.find((b) => b.id === selId)!
+  const [uploading, setUploading] = useState(false)
+  const sel = bills.find((b) => b.id === selId)
   const canEdit = can('ocr', 'edit')
 
   const filtered = bills.filter((b) =>
@@ -23,20 +41,54 @@ export default function OcrBills() {
   )
 
   const update = (patch: Partial<Bill>) => setBills((bs) => bs.map((b) => (b.id === selId ? { ...b, ...patch } : b)))
-  const updateLine = (i: number, patch: Partial<BillLine>) =>
-    update({ lines: sel.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) })
 
-  const onUpload = (files: FileList | null) => {
-    if (!files?.length) return
-    const id = 'BL-' + (1043 + bills.length - BILLS.length)
-    const nb: Bill = { id, vendor: files[0].name.replace(/\.[^.]+$/, ''), branch: 'CK', uploadedBy: 'You', date: '2026-10-26', status: 'processing', confidence: 0, type: 'credit', lines: [] }
+  // Simulated OCR run – the backend will replace this.
+  const runOcr = (id: string, script: BillScript) => {
+    setBills((bs) => bs.map((b) => (b.id === id ? { ...b, script, status: 'processing', confidence: 0, lines: [] } : b)))
+    const r = FAKE_OCR[script]
+    setTimeout(() => {
+      setBills((bs) => bs.map((b) => (b.id === id ? { ...b, status: 'extracted', confidence: r.confidence, lines: r.lines } : b)))
+    }, r.ms)
+  }
+
+  const onUpload = ({ file, script, branch }: { file: File; script: BillScript; branch: string }) => {
+    const id = 'BL-' + (1001 + bills.length)
+    const nb: Bill = { id, vendor: file.name.replace(/\.[^.]+$/, ''), branch, uploadedBy: 'You', date: '2026-10-27', status: 'processing', confidence: 0, type: 'credit', script, lines: [] }
     setBills((bs) => [nb, ...bs])
     setSelId(id)
-    // Simulated OCR result – the backend will replace this.
-    setTimeout(() => {
-      setBills((bs) => bs.map((b) => b.id === id ? { ...b, status: 'extracted', confidence: 89, lines: [{ item: 'Item 1', qty: 1, unit: 'nos', rate: 100, gst: 5 }] } : b))
-    }, 1800)
+    setTab('all')
+    setUploading(false)
+    runOcr(id, script)
   }
+
+  const header = (
+    <PageHeader
+      title="OCR Bill Inbox"
+      subtitle="Bills uploaded by kitchen managers are read by OCR, reviewed here, then posted as bills"
+      actions={
+        <>
+          <Button icon={Upload} disabled={!can('ocr', 'create')} onClick={() => setUploading(true)}>Upload bill</Button>
+          {uploading && <UploadBillDialog onClose={() => setUploading(false)} onUpload={onUpload} />}
+        </>
+      }
+    />
+  )
+
+  // Nothing uploaded yet.
+  if (!sel) {
+    return (
+      <>
+        {header}
+        <Card>
+          <EmptyState icon={ScanLine} title="No bills yet"
+            text="When a bill is uploaded, OCR reads it and it appears here for checking. Click “Upload bill” to add the first one." />
+        </Card>
+      </>
+    )
+  }
+
+  const updateLine = (i: number, patch: Partial<BillLine>) =>
+    update({ lines: sel.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) })
 
   const subtotal = sel.lines.reduce((s, l) => s + l.qty * l.rate, 0)
   const gst = sel.lines.reduce((s, l) => s + l.qty * l.rate * (l.gst / 100), 0)
@@ -44,16 +96,7 @@ export default function OcrBills() {
 
   return (
     <>
-      <PageHeader
-        title="OCR Bill Inbox"
-        subtitle="Bills uploaded by kitchen managers are read by OCR, reviewed here, then posted as bills"
-        actions={
-          <>
-            <input ref={fileRef} type="file" accept="image/*,application/pdf" hidden onChange={(e) => onUpload(e.target.files)} />
-            <Button icon={Upload} disabled={!can('ocr', 'create')} onClick={() => fileRef.current?.click()}>Upload bill</Button>
-          </>
-        }
-      />
+      {header}
 
       <Tabs
         value={tab}
@@ -78,6 +121,7 @@ export default function OcrBills() {
                   </div>
                   <p className="mt-0.5 truncate text-sm text-slate-600">{b.vendor}</p>
                   <p className="text-xs text-slate-400">{branchName(b.branch)} · {b.uploadedBy} · {b.date}</p>
+                  <span className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">{BILL_SCRIPTS[b.script].short}</span>
                 </button>
               </li>
             ))}
@@ -110,14 +154,25 @@ export default function OcrBills() {
                   {sel.confidence > 0 && <p className="mt-1 text-xs">OCR confidence <b className={sel.confidence > 85 ? 'text-emerald-600' : 'text-rose-600'}>{sel.confidence}%</b></p>}
                 </div>
               </div>
+              <label htmlFor="bill-script" className="mt-3 block text-xs text-slate-500">Bill type</label>
+              <select id="bill-script" className={inputCls + ' mt-1 !py-1.5 text-xs'} value={sel.script}
+                disabled={!canEdit || sel.status === 'verified' || sel.status === 'processing'}
+                onChange={(e) => runOcr(sel.id, e.target.value as BillScript)}>
+                {(Object.keys(BILL_SCRIPTS) as BillScript[]).map((k) => <option key={k} value={k}>{BILL_SCRIPTS[k].label}</option>)}
+              </select>
+              {sel.status !== 'verified' && <p className="mt-1 text-[11px] text-slate-400">Wrong type? Change it and OCR reads the bill again.</p>}
             </Card>
 
             <Card
               title={`Bill details · ${sel.id}`}
-              actions={sel.status === 'failed' && <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => update({ status: 'processing' })}>Re-run OCR</Button>}
+              actions={sel.status === 'failed' && <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => runOcr(sel.id, sel.script)}>Re-run OCR</Button>}
             >
               {sel.status === 'processing' || sel.status === 'queued' ? (
-                <p className="py-10 text-center text-sm text-slate-500"><RefreshCw className="mx-auto mb-2 animate-spin" size={20} />OCR is reading this bill…</p>
+                <p className="py-10 text-center text-sm text-slate-500">
+                  <RefreshCw className="mx-auto mb-2 animate-spin" size={20} />
+                  OCR is reading this {BILL_SCRIPTS[sel.script].short.toLowerCase()} bill…
+                  {sel.script === 'kn-hand' && <span className="mt-1 block text-xs">Kannada item names will be translated to English.</span>}
+                </p>
               ) : (
                 <>
                   <div className="mb-4 grid gap-3 sm:grid-cols-3">
@@ -139,7 +194,10 @@ export default function OcrBills() {
                       <tbody>
                         {sel.lines.map((l, i) => (
                           <tr key={i} className="border-t border-slate-100">
-                            <td className="py-1.5 pr-2"><input className={inputCls + ' !py-1'} value={l.item} disabled={!canEdit} onChange={(e) => updateLine(i, { item: e.target.value })} /></td>
+                            <td className="py-1.5 pr-2">
+                              <input className={inputCls + ' !py-1'} value={l.item} disabled={!canEdit} onChange={(e) => updateLine(i, { item: e.target.value })} />
+                              {l.original && <span className="mt-0.5 block text-xs text-slate-500" lang="kn">On bill: {l.original}</span>}
+                            </td>
                             <td className="pr-2"><input type="number" className={inputCls + ' !w-20 !py-1'} value={l.qty} disabled={!canEdit} onChange={(e) => updateLine(i, { qty: +e.target.value })} /></td>
                             <td className="pr-2 text-slate-500">{l.unit}</td>
                             <td className="pr-2"><input type="number" className={inputCls + ' !w-24 !py-1'} value={l.rate} disabled={!canEdit} onChange={(e) => updateLine(i, { rate: +e.target.value })} /></td>

@@ -10,7 +10,7 @@ export default function OcrStatus() {
   const [cfg, setCfg] = useState({ engine: 'Prisim Vision v2', autoApprove: 95, language: 'English + Kannada + Hindi', retries: 2 })
   const active = Object.values(ocrEnabled).filter(Boolean).length
   const done = BILLS.filter((b) => b.confidence > 0)
-  const avg = done.reduce((s, b) => s + b.confidence, 0) / done.length
+  const avg = done.length ? done.reduce((s, b) => s + b.confidence, 0) / done.length : 0
 
   return (
     <>
@@ -20,7 +20,7 @@ export default function OcrStatus() {
         <Stat label="Engine" value="Online" hint={cfg.engine} icon={Activity} tone="green" />
         <Stat label="Branches active" value={`${active} / ${BRANCHES.length}`} icon={CheckCircle2} />
         <Stat label="In queue" value={String(BILLS.filter((b) => b.status === 'queued' || b.status === 'processing').length)} icon={Clock} tone="amber" />
-        <Stat label="Avg confidence" value={avg.toFixed(1) + '%'} icon={Gauge} tone={avg > 85 ? 'green' : 'amber'} />
+        <Stat label="Avg confidence" value={done.length ? avg.toFixed(1) + '%' : '—'} icon={Gauge} tone={avg > 85 ? 'green' : 'amber'} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">

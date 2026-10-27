@@ -1,6 +1,7 @@
+import { IndianRupee } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card } from '../../../components/ui'
-import { Big, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money } from '../../../components/report'
+import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money } from '../../../components/report'
 import { AGGREGATOR_COMMISSION, AGGREGATOR_SHARE, LAST_MONTH, PAYMENT_SPLIT, RECIPES, SALES_TREND } from '../../../data/mock'
 import { OUTLETS } from '../../../data/pnl'
 import { UploadBookButton, UploadedBooks } from '../../../components/BookUpload'
@@ -12,7 +13,7 @@ const DAY_NAMES: Record<string, string> = { Mon: 'Monday', Tue: 'Tuesday', Wed: 
 export default function SalesReport() {
   const { can } = useApp()
   const total = OUTLETS.reduce((s, b) => s + b.sales, 0)
-  const last = OUTLETS.reduce((s, b) => s + LAST_MONTH[b.id].sales, 0)
+  const last = OUTLETS.reduce((s, b) => s + (LAST_MONTH[b.id]?.sales ?? 0), 0)
   const change = ((total - last) / last) * 100
   const ranked = [...OUTLETS].sort((a, b) => b.sales - a.sales)
   const online = total * AGGREGATOR_SHARE
@@ -27,9 +28,19 @@ export default function SalesReport() {
 
   const csv = () => downloadCsv('BTI-Sales-Report-Oct-2026.csv', [
     ['Outlet', 'Sales this month', 'Sales last month', 'Change %'],
-    ...ranked.map((b) => [b.name, b.sales, LAST_MONTH[b.id].sales, (((b.sales - LAST_MONTH[b.id].sales) / LAST_MONTH[b.id].sales) * 100).toFixed(1)]),
+    ...ranked.map((b) => [b.name, b.sales, (LAST_MONTH[b.id]?.sales ?? 0), (((b.sales - (LAST_MONTH[b.id]?.sales ?? 0)) / (LAST_MONTH[b.id]?.sales ?? 0)) * 100).toFixed(1)]),
     ['Total', total, last, change.toFixed(1)],
   ])
+
+  if (!total) {
+    return (
+      <EmptyReport title="Sales Report" period="October 2026" icon={IndianRupee}
+        text="Sales show up here once outlet sales are connected (POS, Swiggy, Zomato) or entered."
+        actions={<UploadBookButton kind="imprest" disabled={!can('sales', 'create')} />}>
+        <UploadedBooks kind="imprest" canDelete={can('sales', 'delete')} />
+      </EmptyReport>
+    )
+  }
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -54,7 +65,7 @@ export default function SalesReport() {
         <Card title="Sales by outlet" pad={false}>
           <ul className="divide-y divide-slate-100">
             {ranked.map((b) => {
-              const lm = LAST_MONTH[b.id].sales
+              const lm = (LAST_MONTH[b.id]?.sales ?? 0)
               const ch = ((b.sales - lm) / lm) * 100
               return (
                 <li key={b.id} className="px-4 py-3">

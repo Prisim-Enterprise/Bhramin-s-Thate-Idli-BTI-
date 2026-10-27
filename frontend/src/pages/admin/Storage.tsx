@@ -47,6 +47,7 @@ export default function Storage() {
               </tr>
             )
           })}
+          {!rows.length && <tr><td colSpan={7} className="!py-6 text-center text-slate-500">{STOCK.length ? "No items match your search." : "No stock recorded yet."}</td></tr>}
         </Table>
       </Card>
     </>

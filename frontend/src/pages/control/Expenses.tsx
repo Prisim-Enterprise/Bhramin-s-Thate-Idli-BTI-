@@ -8,11 +8,11 @@ export default function Expenses() {
   const { can } = useApp()
   const [items, setItems] = useState(EXPENSES)
   const [cats, setCats] = useState([
-    { name: 'Utilities', budget: 120000, limit: 50000 },
-    { name: 'Repairs', budget: 40000, limit: 10000 },
-    { name: 'Fuel', budget: 60000, limit: 15000 },
-    { name: 'Housekeeping', budget: 25000, limit: 5000 },
-    { name: 'Marketing', budget: 50000, limit: 10000 },
+    { name: 'Utilities', budget: 0, limit: 0 },
+    { name: 'Repairs', budget: 0, limit: 0 },
+    { name: 'Fuel', budget: 0, limit: 0 },
+    { name: 'Housekeeping', budget: 0, limit: 0 },
+    { name: 'Marketing', budget: 0, limit: 0 },
   ])
   const spent = (cat: string) => items.filter((e) => e.category === cat && e.status === 'approved').reduce((s, e) => s + e.amount, 0)
   const setStatus = (id: string, status: string) => setItems((xs) => xs.map((x) => (x.id === id ? { ...x, status } : x)))
@@ -24,7 +24,7 @@ export default function Expenses() {
       <Card title="Expense categories" pad={false} className="mb-4">
         <Table head={['Category', 'Monthly budget', 'Spent', 'Used', 'Manager can approve up to']}>
           {cats.map((c, i) => {
-            const used = (spent(c.name) / c.budget) * 100
+            const used = c.budget ? (spent(c.name) / c.budget) * 100 : 0
             return (
               <tr key={c.name}>
                 <td className="font-medium">{c.name}</td>
@@ -64,6 +64,7 @@ export default function Expenses() {
               </tr>
             )
           })}
+          {!items.length && <tr><td colSpan={8} className="!py-6 text-center text-slate-500">No expense claims yet.</td></tr>}
         </Table>
       </Card>
     </>

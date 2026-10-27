@@ -1,6 +1,7 @@
+import { MinusCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Card } from '../../../components/ui'
-import { Big, Explain, ReportHeader, Summary, Tile, downloadCsv, money } from '../../../components/report'
+import { Big, EmptyReport, Explain, ReportHeader, Summary, Tile, downloadCsv, money } from '../../../components/report'
 import { useApp } from '../../../context/AppContext'
 import { EMPLOYEES, computePay } from '../../../data/mock'
 
@@ -25,6 +26,11 @@ export default function DeductionsReport() {
     ['Name', 'PF', 'ESI', 'Professional Tax', 'TDS', 'Advance', 'Meals', 'Total cut'],
     ...staff.map(({ e, p }) => [e.name, p.pf, p.esi, p.pt, p.tds, p.advance, p.meal, p.deductions]),
   ])
+
+  if (!staff.length) {
+    return <EmptyReport title="Deductions Report" period="October 2026" icon={MinusCircle}
+      text="PF, ESI, professional tax and other salary deductions show up here once staff and their pay are added." />
+  }
 
   return (
     <div className="mx-auto max-w-7xl">

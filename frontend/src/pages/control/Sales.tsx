@@ -10,9 +10,9 @@ export default function Sales() {
   const [channels, setChannels] = useState([
     { name: 'Dine-in', on: true, commission: 0 },
     { name: 'Takeaway', on: true, commission: 0 },
-    { name: 'Swiggy', on: true, commission: 22 },
-    { name: 'Zomato', on: true, commission: 24 },
-    { name: 'Own website', on: false, commission: 3 },
+    { name: 'Swiggy', on: true, commission: 0 },
+    { name: 'Zomato', on: true, commission: 0 },
+    { name: 'Own website', on: false, commission: 0 },
   ])
   const [tax, setTax] = useState({ gst: 5, service: 0, roundOff: true, dayClose: '23:30' })
   const outlets = BRANCHES.filter((b) => b.id !== 'CK')
@@ -69,8 +69,8 @@ export default function Sales() {
               <td className="tabular-nums">{inr(Math.round(b.sales * tax.gst / (100 + tax.gst)))}</td>
               <td>
                 <div className="flex items-center gap-2">
-                  <div className="h-1.5 w-24 rounded bg-slate-100"><div className="h-1.5 rounded bg-brand-500" style={{ width: (b.sales / total) * 100 + '%' }} /></div>
-                  <span className="text-xs text-slate-500">{((b.sales / total) * 100).toFixed(1)}%</span>
+                  <div className="h-1.5 w-24 rounded bg-slate-100"><div className="h-1.5 rounded bg-brand-500" style={{ width: (total ? b.sales / total : 0) * 100 + '%' }} /></div>
+                  <span className="text-xs text-slate-500">{((total ? b.sales / total : 0) * 100).toFixed(1)}%</span>
                 </div>
               </td>
               <td className={b.foodCost > 32 ? 'text-rose-600' : ''}>{b.foodCost}%</td>

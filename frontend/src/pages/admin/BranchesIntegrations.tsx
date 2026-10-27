@@ -155,7 +155,7 @@ export default function BranchesIntegrations() {
             {branch.phone && <li className="flex gap-2.5"><Phone size={16} className="shrink-0 text-slate-400" /><a href={`tel:${branch.phone.replace(/\s/g, '')}`} className="hover:underline">{branch.phone}</a></li>}
             <li className="flex gap-2.5"><Clock size={16} className="shrink-0 text-slate-400" />Open {branch.hours}</li>
           </ul>
-          {branch.status !== 'online' && (
+          {branch.status === 'offline' && (
             <p className="mt-4 flex gap-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-700">
               <AlertTriangle size={14} className="shrink-0" /> This branch is offline, so its apps can't send or receive data. Check the internet connection at the outlet.
             </p>

@@ -1,9 +1,9 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ArrowDownRight, ArrowUpRight, Download, Printer } from 'lucide-react'
+import { ArrowDownRight, ArrowUpRight, Download, Printer, Scale } from 'lucide-react'
 import { Button, Card, PageHeader } from '../../components/ui'
 import { PNL_HISTORY, inr } from '../../data/mock'
-import { Big, Summary, per100 } from '../../components/report'
+import { Big, EmptyReport, Summary, per100 } from '../../components/report'
 import { IS_SHARE } from '../../config'
 import { CENTRAL_TOTAL, OUTLETS, buildPnl } from '../../data/pnl'
 
@@ -80,6 +80,11 @@ export default function ProfitLoss() {
     a.download = `BTI-PnL-${scopeName.replace(/\s+/g, '-')}-Oct-2026.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  if (!allNow.sales && !allNow.opex && !allNow.depreciation) {
+    return <EmptyReport title="Profit & Loss" period="October 2026" icon={Scale}
+      text="The profit and loss statement fills in once sales, ingredient costs and running costs are recorded for the month." />
   }
 
   return (
