@@ -5,6 +5,8 @@ import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, m
 import { useApp } from '../../../context/AppContext'
 import { EXPENSES, branchName } from '../../../data/mock'
 import { OUTLETS, buildPnl } from '../../../data/pnl'
+import { EntriesOnly, EntryPayouts } from '../../../components/DayEntries'
+import { useEntries } from '../../../data/entries'
 
 const STATUS: Record<string, [string, 'green' | 'amber' | 'red']> = {
   approved: ['Approved', 'green'],
@@ -13,6 +15,7 @@ const STATUS: Record<string, [string, 'green' | 'amber' | 'red']> = {
 }
 
 export default function ExpensesReport() {
+  const hasEntries = useEntries().some((e) => e.payouts.some((x) => x.type === 'expense'))
   const { can } = useApp()
   const [claims, setClaims] = useState(EXPENSES)
   const p = buildPnl(OUTLETS.map((b) => b.id), 'this')
@@ -42,6 +45,7 @@ export default function ExpensesReport() {
   ])
 
   if (!spent && !claims.length) {
+    if (hasEntries) return <EntriesOnly title="Expenses Report"><EntryPayouts type="expense" /></EntriesOnly>
     return <EmptyReport title="Expenses Report" period="October 2026" icon={Receipt}
       text="Running costs and expense claims from outlets show up here once they are recorded." />
   }
@@ -49,6 +53,7 @@ export default function ExpensesReport() {
   return (
     <div className="mx-auto max-w-7xl">
       <ReportHeader title="Expenses Report" period="October 2026 · all outlets · where the money went" onCsv={csv} />
+      <div className="mb-4"><EntryPayouts type="expense" /></div>
 
       <Summary points={[
         <>Out of every <Big>₹100</Big> BTI earned, <Big>{per100(p.food, p.sales)}</Big> went on ingredients and <Big>{per100(runningCosts, p.sales)}</Big> on running the outlets. <Big>{per100(p.net, p.sales)}</Big> was left as profit.</>,

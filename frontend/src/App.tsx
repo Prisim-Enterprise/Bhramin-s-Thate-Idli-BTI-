@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Link, Navigate, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import Layout, { HUBS, type HubId } from './components/Layout'
 import { NoAccess } from './components/ui'
@@ -19,6 +19,7 @@ import SalaryReport from './pages/admin/reports/SalaryReport'
 import DeductionsReport from './pages/admin/reports/DeductionsReport'
 import ProfitLoss from './pages/admin/ProfitLoss'
 import AccountingHub from './pages/admin/AccountingHub'
+import DayEntry from './pages/admin/DayEntry'
 import KitchenHub from './pages/admin/KitchenHub'
 import SetupHub from './pages/admin/SetupHub'
 import BranchesIntegrations from './pages/admin/BranchesIntegrations'
@@ -46,6 +47,12 @@ function Guard({ module, children }: { module: ModuleId; children: ReactNode }) 
 
 type R = { path: string; module: ModuleId; el: ReactNode }
 
+// Re-mount the entry screen when moving between saved entries.
+function DayEntryKeyed() {
+  const { id } = useParams()
+  return <DayEntry key={id} />
+}
+
 // Centre Kitchen Dashboard portal — accounts and kitchen.
 const adminRoutes: R[] = [
   { path: '', module: 'dashboard', el: <Overview /> },
@@ -54,6 +61,8 @@ const adminRoutes: R[] = [
   { path: 'kitchen', module: 'dashboard', el: <KitchenHub /> },
   { path: 'setup', module: 'dashboard', el: <SetupHub /> },
   { path: 'accounting/bills', module: 'ocr', el: <OcrBills /> },
+  { path: 'accounting/entry', module: 'accounts', el: <DayEntry /> },
+  { path: 'accounting/entry/:id', module: 'accounts', el: <DayEntryKeyed /> },
   { path: 'accounting/costing', module: 'accounts', el: <FoodCostReport /> },
   { path: 'accounting/sales', module: 'sales', el: <SalesReport /> },
   { path: 'accounting/expenses', module: 'expenses', el: <ExpensesReport /> },
@@ -87,6 +96,7 @@ const controlInAdmin: R[] = controlRoutes.filter((r) => r.path !== '')
 
 // Which big-button group a page belongs to, so it can show a "← back" link.
 function hubFor(path: string): HubId | null {
+  if (path.startsWith('accounting/entry')) return 'accounting'
   const full = '/admin/' + path
   return (Object.keys(HUBS) as HubId[]).find((id) => HUBS[id].items.some((i) => i.to === full)) ?? null
 }

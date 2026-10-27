@@ -4,7 +4,8 @@ import { Card } from '../../../components/ui'
 import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money } from '../../../components/report'
 import { AGGREGATOR_COMMISSION, AGGREGATOR_SHARE, LAST_MONTH, PAYMENT_SPLIT, RECIPES, SALES_TREND } from '../../../data/mock'
 import { OUTLETS } from '../../../data/pnl'
-import { UploadBookButton, UploadedBooks } from '../../../components/BookUpload'
+import { AddEntryButtons, EntrySales } from '../../../components/DayEntries'
+import { useEntries } from '../../../data/entries'
 import { useApp } from '../../../context/AppContext'
 
 const DAYS_SO_FAR = 26
@@ -12,6 +13,7 @@ const DAY_NAMES: Record<string, string> = { Mon: 'Monday', Tue: 'Tuesday', Wed: 
 
 export default function SalesReport() {
   const { can } = useApp()
+  const entries = useEntries()
   const total = OUTLETS.reduce((s, b) => s + b.sales, 0)
   const last = OUTLETS.reduce((s, b) => s + (LAST_MONTH[b.id]?.sales ?? 0), 0)
   const change = ((total - last) / last) * 100
@@ -34,17 +36,22 @@ export default function SalesReport() {
 
   if (!total) {
     return (
-      <EmptyReport title="Sales Report" period="October 2026" icon={IndianRupee}
-        text="Sales show up here once outlet sales are connected (POS, Swiggy, Zomato) or entered."
-        actions={<UploadBookButton kind="imprest" disabled={!can('sales', 'create')} />}>
-        <UploadedBooks kind="imprest" canDelete={can('sales', 'delete')} />
-      </EmptyReport>
+      entries.length ? (
+        <div className="mx-auto max-w-7xl">
+          <ReportHeader title="Sales Report" period="From day entries · amounts in ₹" actions={<AddEntryButtons disabled={!can('accounts', 'create')} />} />
+          <EntrySales />
+        </div>
+      ) : (
+        <EmptyReport title="Sales Report" period="October 2026" icon={IndianRupee}
+          text="Sales show up here once outlet sales are connected (POS, Swiggy, Zomato) or a day entry is added."
+          actions={<AddEntryButtons disabled={!can('accounts', 'create')} />} />
+      )
     )
   }
 
   return (
     <div className="mx-auto max-w-7xl">
-      <ReportHeader title="Sales Report" period={`October 2026 · 1st to 26th (${DAYS_SO_FAR} days) · amounts exclude GST`} onCsv={csv} actions={<UploadBookButton kind="imprest" disabled={!can('sales', 'create')} />} />
+      <ReportHeader title="Sales Report" period={`October 2026 · 1st to 26th (${DAYS_SO_FAR} days) · amounts exclude GST`} onCsv={csv} actions={<AddEntryButtons disabled={!can('accounts', 'create')} />} />
 
       <Summary points={[
         <>BTI sold <Big>{money(total)}</Big> so far this month, which is about <Big>{money(total / DAYS_SO_FAR)}</Big> every day.</>,
@@ -142,7 +149,7 @@ export default function SalesReport() {
       </div>
 
       <div className="mt-4">
-        <UploadedBooks kind="imprest" canDelete={can('sales', 'delete')} />
+        <EntrySales />
       </div>
     </div>
   )

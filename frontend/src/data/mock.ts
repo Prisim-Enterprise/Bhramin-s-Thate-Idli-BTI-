@@ -103,6 +103,7 @@ export const BILL_SCRIPTS: Record<BillScript, { label: string; short: string; hi
 }
 export type Bill = {
   id: string; vendor: string; branch: string; uploadedBy: string; date: string
+  uploadedAt?: string // when it was uploaded (ISO date and time)
   status: OcrStatus; confidence: number; type: 'credit' | 'other'; script: BillScript; lines: BillLine[]
 }
 export const BILLS: Bill[] = []

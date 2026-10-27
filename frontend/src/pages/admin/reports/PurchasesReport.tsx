@@ -2,6 +2,8 @@ import { ArrowDownRight, ArrowUpRight, Minus, PackagePlus } from 'lucide-react'
 import { Badge, Card } from '../../../components/ui'
 import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money } from '../../../components/report'
 import { PRICE_CHANGES, PURCHASE_ORDERS, VENDOR_SPEND } from '../../../data/mock'
+import { EntriesOnly, EntryPayouts } from '../../../components/DayEntries'
+import { useEntries } from '../../../data/entries'
 
 const PO_STATUS: Record<string, [string, 'blue' | 'amber' | 'green' | 'slate']> = {
   draft: ['Not sent yet', 'slate'],
@@ -13,6 +15,7 @@ const PO_STATUS: Record<string, [string, 'blue' | 'amber' | 'green' | 'slate']> 
 const niceDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 
 export default function PurchasesReport() {
+  const hasEntries = useEntries().some((e) => e.payouts.some((x) => x.type === 'purchase'))
   const bought = VENDOR_SPEND.reduce((s, v) => s + v.bought, 0)
   const paid = VENDOR_SPEND.reduce((s, v) => s + v.paid, 0)
   const due = bought - paid
@@ -31,6 +34,7 @@ export default function PurchasesReport() {
   ])
 
   if (!VENDOR_SPEND.length && !PURCHASE_ORDERS.length && !PRICE_CHANGES.length) {
+    if (hasEntries) return <EntriesOnly title="Purchases Report"><EntryPayouts type="purchase" /></EntriesOnly>
     return <EmptyReport title="Purchases Report" period="October 2026" icon={PackagePlus}
       text="What you buy from vendors, what you still owe them and price changes show up here once purchases are recorded." />
   }
@@ -38,6 +42,7 @@ export default function PurchasesReport() {
   return (
     <div className="mx-auto max-w-7xl">
       <ReportHeader title="Purchases Report" period="October 2026 · what we bought, from whom, and what we still owe" onCsv={csv} />
+      <div className="mb-4"><EntryPayouts type="purchase" /></div>
 
       <Summary points={[
         <>BTI bought <Big>{money(bought)}</Big> worth of goods from <Big>{VENDOR_SPEND.length} vendors</Big> this month.</>,

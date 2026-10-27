@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { ArrowRight, CheckCircle2, FileImage, RefreshCw, ScanLine, Trash2, Upload } from 'lucide-react'
 import { Badge, Button, Card, EmptyState, PageHeader, Tabs, inputCls } from '../../components/ui'
 import { useApp } from '../../context/AppContext'
+import { useAuth } from '../../context/AuthContext'
+import { fmtDateTime } from '../../data/entries'
 import { BILLS, BILL_SCRIPTS, branchName, inr, type Bill, type BillLine, type BillScript } from '../../data/mock'
 import UploadBillDialog from '../../components/UploadBillDialog'
 
@@ -29,6 +31,7 @@ const FAKE_OCR: Record<BillScript, { ms: number; confidence: number; lines: Bill
 
 export default function OcrBills() {
   const { can, ocrEnabled } = useApp()
+  const auth = useAuth()
   const [bills, setBills] = useState<Bill[]>(BILLS)
   const [selId, setSelId] = useState(BILLS[0]?.id ?? '')
   const [tab, setTab] = useState<'all' | 'review' | 'credit' | 'other'>('all')
@@ -53,7 +56,7 @@ export default function OcrBills() {
 
   const onUpload = ({ file, script, branch }: { file: File; script: BillScript; branch: string }) => {
     const id = 'BL-' + (1001 + bills.length)
-    const nb: Bill = { id, vendor: file.name.replace(/\.[^.]+$/, ''), branch, uploadedBy: 'You', date: '2026-10-27', status: 'processing', confidence: 0, type: 'credit', script, lines: [] }
+    const nb: Bill = { id, vendor: file.name.replace(/\.[^.]+$/, ''), branch, uploadedBy: auth.email ?? 'Demo user', uploadedAt: new Date().toISOString(), date: new Date().toISOString().slice(0, 10), status: 'processing', confidence: 0, type: 'credit', script, lines: [] }
     setBills((bs) => [nb, ...bs])
     setSelId(id)
     setTab('all')
@@ -120,7 +123,7 @@ export default function OcrBills() {
                     <Badge>{b.status}</Badge>
                   </div>
                   <p className="mt-0.5 truncate text-sm text-slate-600">{b.vendor}</p>
-                  <p className="text-xs text-slate-400">{branchName(b.branch)} · {b.uploadedBy} · {b.date}</p>
+                  <p className="text-xs text-slate-400">{branchName(b.branch)} · Uploaded by {b.uploadedBy}{b.uploadedAt && <> · {fmtDateTime(b.uploadedAt)}</>}</p>
                   <span className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">{BILL_SCRIPTS[b.script].short}</span>
                 </button>
               </li>
@@ -175,6 +178,7 @@ export default function OcrBills() {
                 </p>
               ) : (
                 <>
+                  <p className="mb-3 text-xs text-slate-500">Uploaded by <b className="text-slate-700">{sel.uploadedBy}</b>{sel.uploadedAt && <> on {fmtDateTime(sel.uploadedAt)}</>} · {branchName(sel.branch)}</p>
                   <div className="mb-4 grid gap-3 sm:grid-cols-3">
                     <label className="text-xs text-slate-500">Vendor<input className={inputCls + ' mt-1'} value={sel.vendor} disabled={!canEdit} onChange={(e) => update({ vendor: e.target.value })} /></label>
                     <label className="text-xs text-slate-500">Bill date<input type="date" className={inputCls + ' mt-1'} value={sel.date} disabled={!canEdit} onChange={(e) => update({ date: e.target.value })} /></label>

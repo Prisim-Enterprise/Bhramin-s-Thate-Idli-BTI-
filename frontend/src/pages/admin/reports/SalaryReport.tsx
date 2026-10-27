@@ -4,6 +4,8 @@ import { Badge, Button, Card } from '../../../components/ui'
 import { Big, EmptyReport, ReportHeader, Summary, Tile, downloadCsv, money } from '../../../components/report'
 import { useApp } from '../../../context/AppContext'
 import { BRANCH_COSTS, EMPLOYEES, ROLES, branchName, computePay } from '../../../data/mock'
+import { EntriesOnly, EntryPayouts } from '../../../components/DayEntries'
+import { useEntries } from '../../../data/entries'
 
 const STAGE = {
   draft: ['Not approved yet', 'amber'],
@@ -12,6 +14,7 @@ const STAGE = {
 } as const
 
 export default function SalaryReport() {
+  const hasEntries = useEntries().some((e) => e.payouts.some((x) => x.type === 'salary'))
   const { deductions, can } = useApp()
   const [stage, setStage] = useState<keyof typeof STAGE>('draft')
   const staff = EMPLOYEES.filter((e) => e.basic > 0).map((e) => ({ e, p: computePay(e, deductions) }))
@@ -34,6 +37,7 @@ export default function SalaryReport() {
   const [stageLabel, stageTone] = STAGE[stage]
 
   if (!staff.length) {
+    if (hasEntries) return <EntriesOnly title="Salary Report"><EntryPayouts type="salary" /></EntriesOnly>
     return <EmptyReport title="Salary Report" period="October 2026" icon={Wallet}
       text="Salaries show up here once staff and their monthly pay are added." />
   }
@@ -50,6 +54,7 @@ export default function SalaryReport() {
               : null
         )}
       />
+      <div className="mb-4"><EntryPayouts type="salary" /></div>
 
       <Summary points={[
         <>This month's salary for <Big>{staff.length} staff</Big> on payroll is <Big>{money(gross)}</Big>.</>,
