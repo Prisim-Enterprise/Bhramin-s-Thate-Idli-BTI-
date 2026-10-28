@@ -2,8 +2,7 @@ import { ArrowDownRight, ArrowUpRight, Minus, PackagePlus } from 'lucide-react'
 import { Badge, Card } from '../../../components/ui'
 import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money } from '../../../components/report'
 import { PRICE_CHANGES, PURCHASE_ORDERS, VENDOR_SPEND } from '../../../data/mock'
-import { EntriesOnly, EntryPayouts } from '../../../components/DayEntries'
-import { useEntries } from '../../../data/entries'
+import { EntriesOnly, EntryPayouts, usePayoutRows } from '../../../components/DayEntries'
 
 const PO_STATUS: Record<string, [string, 'blue' | 'amber' | 'green' | 'slate']> = {
   draft: ['Not sent yet', 'slate'],
@@ -15,7 +14,7 @@ const PO_STATUS: Record<string, [string, 'blue' | 'amber' | 'green' | 'slate']> 
 const niceDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 
 export default function PurchasesReport() {
-  const hasEntries = useEntries().some((e) => e.payouts.some((x) => x.type === 'purchase'))
+  const hasEntries = usePayoutRows('purchase').length > 0
   const bought = VENDOR_SPEND.reduce((s, v) => s + v.bought, 0)
   const paid = VENDOR_SPEND.reduce((s, v) => s + v.paid, 0)
   const due = bought - paid

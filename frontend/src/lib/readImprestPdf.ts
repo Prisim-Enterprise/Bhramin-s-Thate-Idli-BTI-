@@ -25,7 +25,7 @@ function tallyDate(s: string): string | null {
 }
 
 /** Pull the text out of the PDF, one string per printed line. */
-async function pdfLines(file: File): Promise<string[]> {
+export async function pdfLines(file: File): Promise<string[]> {
   const pdfjs = await import('pdfjs-dist')
   const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
   pdfjs.GlobalWorkerOptions.workerSrc = worker.default

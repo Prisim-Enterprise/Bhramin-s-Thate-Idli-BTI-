@@ -20,6 +20,7 @@ import DeductionsReport from './pages/admin/reports/DeductionsReport'
 import ProfitLoss from './pages/admin/ProfitLoss'
 import AccountingHub from './pages/admin/AccountingHub'
 import DayEntry from './pages/admin/DayEntry'
+import AccountBooks from './pages/admin/AccountBooks'
 import KitchenHub from './pages/admin/KitchenHub'
 import SetupHub from './pages/admin/SetupHub'
 import BranchesIntegrations from './pages/admin/BranchesIntegrations'
@@ -69,6 +70,7 @@ const adminRoutes: R[] = [
   { path: 'accounting/purchases', module: 'purchase', el: <PurchasesReport /> },
   { path: 'accounting/salary', module: 'salary', el: <SalaryReport /> },
   { path: 'accounting/deductions', module: 'deductions', el: <DeductionsReport /> },
+  { path: 'accounting/books', module: 'accounts', el: <AccountBooks /> },
   { path: 'accounting/pnl', module: 'accounts', el: <ProfitLoss /> },
   { path: 'setup/branches', module: 'settings', el: <BranchesIntegrations /> },
   { path: 'kitchen/indents', module: 'indent', el: <Indents /> },

@@ -17,6 +17,7 @@ export default function AccountingHub() {
   const toCheck = BILLS.filter((b) => b.status === 'extracted' || b.status === 'failed').length
 
   const stats: Record<string, HubStat> = {
+    '/admin/accounting/books': ent.count ? { value: String(ent.count), caption: ent.count === 1 ? 'day entry in the books' : 'day entries in the books' } : { value: '—', caption: 'no entries yet' },
     '/admin/accounting/pnl': !p.sales && !p.opex ? { value: '—', caption: 'no figures yet' } : { value: money(p.net), caption: p.net >= 0 ? 'profit this month' : 'loss this month', tone: p.net >= 0 ? 'good' : 'bad' },
     '/admin/accounting/sales': ent.count ? { value: money(ent.sales), caption: `food sales · ${ent.count} day ${ent.count === 1 ? 'entry' : 'entries'}` } : { value: money(p.sales), caption: 'sold this month' },
     '/admin/accounting/expenses': ent.expense ? { value: money(ent.expense), caption: 'paid out in day entries' } : { value: money(p.opex + p.depreciation), caption: 'running costs' },

@@ -4,8 +4,7 @@ import { Badge, Button, Card } from '../../../components/ui'
 import { Big, EmptyReport, ReportHeader, Summary, Tile, downloadCsv, money } from '../../../components/report'
 import { useApp } from '../../../context/AppContext'
 import { BRANCH_COSTS, EMPLOYEES, ROLES, branchName, computePay } from '../../../data/mock'
-import { EntriesOnly, EntryPayouts } from '../../../components/DayEntries'
-import { useEntries } from '../../../data/entries'
+import { EntriesOnly, EntryPayouts, usePayoutRows } from '../../../components/DayEntries'
 
 const STAGE = {
   draft: ['Not approved yet', 'amber'],
@@ -14,7 +13,7 @@ const STAGE = {
 } as const
 
 export default function SalaryReport() {
-  const hasEntries = useEntries().some((e) => e.payouts.some((x) => x.type === 'salary'))
+  const hasEntries = usePayoutRows('salary').length > 0
   const { deductions, can } = useApp()
   const [stage, setStage] = useState<keyof typeof STAGE>('draft')
   const staff = EMPLOYEES.filter((e) => e.basic > 0).map((e) => ({ e, p: computePay(e, deductions) }))

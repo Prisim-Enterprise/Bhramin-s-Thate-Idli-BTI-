@@ -8,6 +8,7 @@ import {
   PAYOUT_TYPES, billTotal, cashIn, closing, deleteEntry, fmtDateTime, inMonth, niceDate, paidOut, useEntries, viaApps, type PayoutType,
 } from '../data/entries'
 import { readImprestPdf } from '../lib/readImprestPdf'
+import { groupOf, reportOf, useCustomLedgers, useManualVouchers } from '../data/ledgerStore'
 
 /** "Enter manually" and "Upload PDF" buttons. Both open the day entry screen. */
 export function AddEntryButtons({ disabled }: { disabled?: boolean }) {
@@ -123,23 +124,38 @@ export function EntrySales({ month }: { month?: string }) {
   )
 }
 
-/** Expense, purchase or salary lines from day entries, for that report. */
+/** Expense, purchase or salary lines: from day entries and from receipts posted in Account Books. */
+export function usePayoutRows(type: PayoutType, month?: string) {
+  const entries = inMonth(useEntries(), month)
+  const manual = useManualVouchers().filter((m) => !month || m.date.startsWith(month))
+  const custom = useCustomLedgers()
+  return [
+    ...entries.flatMap((e) => e.payouts.filter((p) => p.type === type).map((p, i) => ({
+      key: e.id + i, date: e.date, branch: e.branch, ledger: p.ledger, amount: p.amount, from: 'Day entry',
+    }))),
+    ...manual.filter((m) => reportOf(groupOf(m.ledger, custom)) === type).map((m) => ({
+      key: m.id, date: m.date, branch: m.branch, ledger: m.ledger, amount: m.amount, from: `Receipt · ${m.type}`,
+    })),
+  ].sort((a, b) => b.date.localeCompare(a.date))
+}
+
 export function EntryPayouts({ type, month }: { type: PayoutType; month?: string }) {
-  const rows = inMonth(useEntries(), month).flatMap((e) => e.payouts.filter((p) => p.type === type).map((p, i) => ({ e, p, key: e.id + i })))
+  const rows = usePayoutRows(type, month)
   if (!rows.length) return null
-  const total = rows.reduce((s, r) => s + r.p.amount, 0)
+  const total = rows.reduce((s, r) => s + r.amount, 0)
   return (
-    <Card title={`${PAYOUT_TYPES[type]} lines from day entries · ${money(total, false)}`} pad={false}>
-      <Table head={['Date', 'Branch', 'What for', 'Amount']}>
-        {rows.map(({ e, p, key }) => (
-          <tr key={key}>
-            <td>{niceDate(e.date)}</td>
-            <td className="font-medium text-slate-900">{branchName(e.branch)}</td>
-            <td>{p.ledger}</td>
-            <td className="tabular-nums">{inr(p.amount)}</td>
+    <Card title={`${PAYOUT_TYPES[type]} lines from day entries and receipts · ${money(total, false)}`} pad={false}>
+      <Table head={['Date', 'Branch', 'What for', 'From', 'Amount']}>
+        {rows.map((r) => (
+          <tr key={r.key}>
+            <td>{niceDate(r.date)}</td>
+            <td className="font-medium text-slate-900">{branchName(r.branch)}</td>
+            <td>{r.ledger}</td>
+            <td className="text-slate-500">{r.from}</td>
+            <td className="tabular-nums">{inr(r.amount)}</td>
           </tr>
         ))}
-        <tr className="bg-slate-50 font-semibold"><td colSpan={3}>Total</td><td className="tabular-nums">{inr(total)}</td></tr>
+        <tr className="bg-slate-50 font-semibold"><td colSpan={4}>Total</td><td className="tabular-nums">{inr(total)}</td></tr>
       </Table>
     </Card>
   )
@@ -148,13 +164,11 @@ export function EntryPayouts({ type, month }: { type: PayoutType; month?: string
 /** Totals from day entries in a month, for the Accounting tiles. */
 export function useEntryTotals(month?: string) {
   const list = inMonth(useEntries(), month)
-  return {
-    count: list.length,
-    sales: list.reduce((s, e) => s + e.sales, 0),
-    expense: list.reduce((s, e) => s + paidOut(e, 'expense'), 0),
-    purchase: list.reduce((s, e) => s + paidOut(e, 'purchase'), 0),
-    salary: list.reduce((s, e) => s + paidOut(e, 'salary'), 0),
-  }
+  const sum = (rows: { amount: number }[]) => rows.reduce((s, r) => s + r.amount, 0)
+  const expense = sum(usePayoutRows('expense', month))
+  const purchase = sum(usePayoutRows('purchase', month))
+  const salary = sum(usePayoutRows('salary', month))
+  return { count: list.length, sales: list.reduce((s, e) => s + e.sales, 0), expense, purchase, salary }
 }
 
 /** A report page that so far only has day-entry lines. */

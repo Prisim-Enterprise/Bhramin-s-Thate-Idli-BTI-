@@ -5,8 +5,7 @@ import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, m
 import { useApp } from '../../../context/AppContext'
 import { EXPENSES, branchName } from '../../../data/mock'
 import { OUTLETS, buildPnl } from '../../../data/pnl'
-import { EntriesOnly, EntryPayouts } from '../../../components/DayEntries'
-import { useEntries } from '../../../data/entries'
+import { EntriesOnly, EntryPayouts, usePayoutRows } from '../../../components/DayEntries'
 
 const STATUS: Record<string, [string, 'green' | 'amber' | 'red']> = {
   approved: ['Approved', 'green'],
@@ -15,7 +14,7 @@ const STATUS: Record<string, [string, 'green' | 'amber' | 'red']> = {
 }
 
 export default function ExpensesReport() {
-  const hasEntries = useEntries().some((e) => e.payouts.some((x) => x.type === 'expense'))
+  const hasEntries = usePayoutRows('expense').length > 0
   const { can } = useApp()
   const [claims, setClaims] = useState(EXPENSES)
   const p = buildPnl(OUTLETS.map((b) => b.id), 'this')
