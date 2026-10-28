@@ -15,13 +15,17 @@ export type CustomLedger = {
 
 export type ReceiptFile = { name: string; type: string; size: number; dataUrl?: string }
 
+export type ManualType = 'Payment' | 'Receipt' | 'Journal' | 'Contra'
+
 export type ManualVoucher = {
   id: string
-  type: 'Payment' | 'Journal'
+  type: ManualType
   date: string // yyyy-mm-dd
   branch: string
-  ledger: string // debited
-  paidFrom: 'imprest' | 'bank' // credited
+  drLedger?: string // debited (newer vouchers)
+  crLedger?: string // credited (newer vouchers)
+  ledger?: string // older vouchers: debited
+  paidFrom?: 'imprest' | 'bank' // older vouchers: credited
   amount: number
   narration: string
   receipt?: ReceiptFile
@@ -68,10 +72,24 @@ export function deleteManualVoucher(id: string) {
   vouchers.set(vouchers.get().filter((v) => v.id !== id))
 }
 
+/** Debit and credit ledgers of a voucher (older vouchers stored only the debit side). */
+export function sides(m: ManualVoucher, imprestOf: (branch: string) => string) {
+  return {
+    dr: m.drLedger ?? m.ledger ?? '',
+    cr: m.crLedger ?? (m.paidFrom === 'bank' ? 'Bank Account' : imprestOf(m.branch)),
+  }
+}
+
 /** Group for a ledger name: the one it was created under, or a best guess. */
 export function groupOf(name: string, custom: CustomLedger[]): GroupId {
   const c = custom.find((l) => l.name.toLowerCase() === name.toLowerCase())
   if (c) return c.group
+  if (/ - imprest$|^cash$/i.test(name)) return 'cash'
+  if (/bank|o\/d a\/c|\bod a\/c/i.test(name)) return 'bank'
+  if (/^(mobikwik|swiggy|zomato|rapido)/i.test(name)) return 'debtors'
+  if (/^sales/i.test(name)) return 'sales'
+  if (/output (c|s|i)gst/i.test(name)) return 'duties'
+  if (/traders|suppliers|enterprises|agencies|stores/i.test(name)) return 'creditors'
   return ({ expense: 'indirectExp', purchase: 'purchase', salary: 'liabilities' } as const)[guessType(name)]
 }
 

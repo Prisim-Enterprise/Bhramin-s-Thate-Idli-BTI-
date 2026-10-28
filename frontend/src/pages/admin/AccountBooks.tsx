@@ -2,10 +2,10 @@ import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, BookText, CheckCircle2, ChevronDown, ChevronRight, FileUp, Paperclip, Plus, Search, Trash2 } from 'lucide-react'
 import { Button, Card, EmptyState, inputCls } from '../../components/ui'
-import { AddLedgerDialog, UploadReceiptDialog } from '../../components/LedgerDialogs'
+import { AddLedgerDialog, VoucherDialog } from '../../components/LedgerDialogs'
 import { useApp } from '../../context/AppContext'
 import { useAuth } from '../../context/AuthContext'
-import { BRANCHES, branchName } from '../../data/mock'
+import { BRANCHES, ROLES, branchName } from '../../data/mock'
 import { KNOWN_LEDGERS, cashIn, closing, fmtDateTime, niceDate, useEntries, type DayEntry } from '../../data/entries'
 import { deleteManualVoucher, groupOf, openReceipt, useCustomLedgers, useManualVouchers, type CustomLedger } from '../../data/ledgerStore'
 import {
@@ -186,18 +186,29 @@ function CashBook({ branch, entries, vouchers, onBranch }: { branch: string; ent
   )
 }
 
-/* ---------- Ledger: search, add, upload receipt ---------- */
+/* ---------- Ledger: Tally-style ledger screen with search, add ledger and vouchers ---------- */
+
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+/** "2026-10-09" -> "9-Oct-26", as Tally prints dates. */
+const tallyDate = (d: string) => `${Number(d.slice(8, 10))}-${MON[Number(d.slice(5, 7)) - 1]}-${d.slice(2, 4)}`
 
 function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }: {
   vouchers: Voucher[]; allVouchers: Voucher[]; custom: CustomLedger[]; branch: string; ledger: string; setLedger: (l: string) => void
 }) {
-  const { can } = useApp()
+  const { can, role } = useApp()
   const auth = useAuth()
   const by = auth.email ?? 'Demo user'
   const [q, setQ] = useState('')
+  const [blocked, setBlocked] = useState(false)
+  // Buttons are always shown. Roles that can't add (like Auditor) get told why instead of nothing happening.
+  const canAdd = can('accounts', 'create')
+  const guard = (action: () => void) => () => (canAdd ? action() : setBlocked(true))
   const [adding, setAdding] = useState(false)
-  const [uploading, setUploading] = useState(false)
+  const [dialog, setDialog] = useState<null | 'voucher' | 'receipt'>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [open, setOpen] = useState<string | null>(null)
 
   // Every ledger: used in any branch, created by hand, or a common one from the Imprest Book.
   const names = useMemo(() => {
@@ -208,25 +219,38 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
   const shown = names.filter((n) => n.toLowerCase().includes(q.trim().toLowerCase()))
   const current = names.includes(ledger) ? ledger : ''
 
-  const rows = vouchers.flatMap((v) => v.postings.filter((p) => p.ledger === current).map((p) => ({ v, p })))
-  const opening = custom.find((c) => c.name === current)?.opening ?? 0
-  let bal = opening
+  // All postings to this ledger, then split into "before the period" (goes into opening) and "in the period".
+  const all = vouchers.flatMap((v) => v.postings.filter((p) => p.ledger === current).map((p) => ({ v, p })))
+  const before = all.filter(({ v }) => from && v.date < from)
+  const rows = all.filter(({ v }) => (!from || v.date >= from) && (!to || v.date <= to))
+  const opening = (custom.find((c) => c.name === current)?.opening ?? 0) + before.reduce((s, r) => s + r.p.dr - r.p.cr, 0)
+  const totDr = rows.reduce((s, r) => s + r.p.dr, 0)
+  const totCr = rows.reduce((s, r) => s + r.p.cr, 0)
+  const closingBal = opening + totDr - totCr
+  const periodFrom = from || rows[0]?.v.date
+  const periodTo = to || rows[rows.length - 1]?.v.date
+  const half = (n: number, side: 'dr' | 'cr') => (side === 'dr' ? (n > 0 ? amt(n) : '') : n < 0 ? amt(-n) : '')
+
+  const pickLedger = (n: string) => { setLedger(n); setNotice(null); setOpen(null) }
 
   return (
-    <div className="grid lg:grid-cols-[260px_1fr]">
+    <div className="grid lg:grid-cols-[240px_1fr]">
       {/* Ledger list with search */}
       <div className="border-b border-slate-100 p-3 lg:border-b-0 lg:border-r">
         <div className="relative">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input className={inputCls + ' pl-9'} placeholder="Search ledger" aria-label="Search ledger" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        {can('accounts', 'create') && (
-          <Button variant="secondary" icon={Plus} className="mt-2 w-full justify-center" onClick={() => setAdding(true)}>Add ledger</Button>
+        <Button variant="secondary" icon={Plus} className="mt-2 w-full justify-center" onClick={guard(() => setAdding(true))}>Add ledger</Button>
+        {blocked && !current && (
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            You're signed in as <b>{ROLES.find((x) => x.id === role)?.name}</b>, which can only view. Ask an admin to give you the Accountant or Admin role, then sign in again.
+          </p>
         )}
-        <ul className="mt-2 max-h-72 overflow-y-auto lg:max-h-[520px]">
+        <ul className="mt-2 max-h-72 overflow-y-auto lg:max-h-[560px]">
           {shown.map((n) => (
             <li key={n}>
-              <button onClick={() => { setLedger(n); setNotice(null) }}
+              <button onClick={() => pickLedger(n)}
                 className={`block w-full truncate rounded-md px-2 py-1.5 text-left text-sm ${n === current ? 'bg-[#d9a441] font-semibold text-slate-900' : 'text-slate-700 hover:bg-slate-100'}`}>
                 {n}
               </button>
@@ -235,77 +259,129 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
           {!shown.length && (
             <li className="px-2 py-3 text-sm text-slate-500">
               No ledger matches &ldquo;{q}&rdquo;.{' '}
-              {can('accounts', 'create') && <button className="font-medium text-[#7a2228] underline" onClick={() => setAdding(true)}>Add it</button>}
+              <button className="font-medium text-[#7a2228] underline" onClick={guard(() => setAdding(true))}>Add it</button>
             </li>
           )}
         </ul>
       </div>
 
-      {/* Selected ledger */}
+      {/* Selected ledger, laid out like Tally's ledger screen */}
       <div className="min-w-0">
         {!current ? (
           <Empty text={<>Search and select a ledger on the left, or <b>Add ledger</b> to create one.</>} />
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-[#eef2fb] px-4 py-3">
               <div>
-                <p className="text-lg font-semibold text-slate-900">{current}</p>
-                <p className="text-xs text-slate-500">Under {GROUPS[groupOf(current, custom)]} · Closing {drCr(opening + rows.reduce((s, r) => s + r.p.dr - r.p.cr, 0))}</p>
+                <p className="text-xs text-slate-500">Ledger</p>
+                <p className="text-lg font-bold text-slate-900">{current}</p>
+                <p className="text-xs text-slate-500">Under {GROUPS[groupOf(current, custom)]}</p>
               </div>
-              {can('accounts', 'create') && <Button icon={FileUp} onClick={() => setUploading(true)}>Upload receipt</Button>}
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="text-xs text-slate-500">From<input type="date" className={inputCls + ' mt-0.5 !py-1.5'} value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+                <label className="text-xs text-slate-500">To<input type="date" className={inputCls + ' mt-0.5 !py-1.5'} value={to} onChange={(e) => setTo(e.target.value)} /></label>
+                <Button variant="secondary" icon={FileUp} onClick={guard(() => setDialog('receipt'))}>Upload receipt</Button>
+                <Button icon={Plus} onClick={guard(() => setDialog('voucher'))}>Add voucher</Button>
+              </div>
             </div>
             {notice && <p className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800"><CheckCircle2 size={16} />{notice}</p>}
-            {!rows.length && !opening ? (
-              <Empty text={<>No entries in this ledger yet. Use <b>Upload receipt</b> to post today&rsquo;s payment.</>} />
-            ) : (
-              <T head={['Date', 'Branch', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit', 'Balance', 'Added by', '']} right={[4, 5, 6, 7]}>
-                {opening !== 0 && (
-                  <tr className="bg-slate-50/60">
-                    <td /><td /><td className="font-semibold">Opening Balance</td><td /><td />
-                    <td className={R}>{opening > 0 ? amt(opening) : ''}</td><td className={R}>{opening < 0 ? amt(-opening) : ''}</td><td className={R}>{drCr(opening)}</td><td /><td />
-                  </tr>
-                )}
-                {rows.map(({ v, p }) => {
-                  bal += p.dr - p.cr
-                  return (
-                    <tr key={v.id + p.ledger}>
-                      <td>{niceDate(v.date)}</td><td>{branchName(v.branch)}</td>
-                      <td>{otherSide(v, current)}{v.narration && <span className="block text-xs text-slate-400">{v.narration}</span>}</td>
-                      <td>{v.type}</td><td className={R}>{v.no}</td>
-                      <td className={R}>{amt(p.dr)}</td><td className={R}>{amt(p.cr)}</td><td className={R}>{drCr(bal)}</td>
-                      <td className="text-xs"><span className="block text-slate-700">{v.addedBy ?? '—'}</span><span className="text-slate-400">{fmtDateTime(v.addedAt)}</span></td>
-                      <td className="text-right">
-                        {v.receipt && (
-                          <button title={v.receipt.dataUrl ? 'View receipt' : `${v.receipt.name} (not stored)`} disabled={!v.receipt.dataUrl}
-                            onClick={() => v.receipt && openReceipt(v.receipt)} className="mr-2 align-middle text-slate-500 hover:text-[#7a2228] disabled:opacity-40">
-                            <Paperclip size={16} />
-                          </button>
-                        )}
-                        {v.manualId && can('accounts', 'delete') && (
-                          <button title="Delete voucher" onClick={() => { if (confirm(`Delete ${v.type} voucher ${v.no}?`)) deleteManualVoucher(v.manualId!) }}
-                            className="align-middle text-slate-400 hover:text-rose-600"><Trash2 size={16} /></button>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-                <tr className="bg-slate-50 font-semibold">
-                  <td colSpan={5}>Closing Balance</td>
-                  <td className={R}>{amt(rows.reduce((s, r) => s + r.p.dr, 0))}</td><td className={R}>{amt(rows.reduce((s, r) => s + r.p.cr, 0))}</td><td className={R}>{drCr(bal)}</td><td /><td />
-                </tr>
-              </T>
+            {blocked && (
+              <p className="mx-4 mt-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <AlertTriangle size={16} className="shrink-0" />
+                <span>You&rsquo;re signed in as <b>{ROLES.find((x) => x.id === role)?.name}</b>, which can only view. Ask an admin for the Accountant or Admin role, then sign in again.</span>
+              </p>
             )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-300 text-left text-xs font-semibold text-slate-600">
+                    <th className="px-4 py-2">Date</th>
+                    <th className="px-4 py-2">Particulars</th>
+                    <th className="px-4 py-2">Vch Type</th>
+                    <th className="px-4 py-2 text-right">Vch No.</th>
+                    <th className="px-4 py-2 text-right">Debit</th>
+                    <th className="px-4 py-2 text-right">
+                      Credit
+                      {periodFrom && <span className="block font-normal text-slate-400">{tallyDate(periodFrom)} to {tallyDate(periodTo!)}</span>}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!rows.length && (
+                    <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">No vouchers in this ledger{from || to ? ' for these dates' : ''} yet. Use <b>Add voucher</b> or <b>Upload receipt</b>.</td></tr>
+                  )}
+                  {rows.map(({ v, p }) => {
+                    const isOpen = open === v.id
+                    return (
+                      <Fragment key={v.id + p.ledger}>
+                        <tr onClick={() => setOpen(isOpen ? null : v.id)}
+                          className={`cursor-pointer ${isOpen ? 'bg-[#f6d77a]' : 'hover:bg-[#fdf3d6]'}`}>
+                          <td className="whitespace-nowrap px-4 py-1.5 tabular-nums">{tallyDate(v.date)}</td>
+                          <td className="px-4 py-1.5 font-semibold text-slate-900">{otherSide(v, current)}</td>
+                          <td className="px-4 py-1.5">{v.type}</td>
+                          <td className="px-4 py-1.5 text-right tabular-nums">{v.no}</td>
+                          <td className="px-4 py-1.5 text-right font-semibold tabular-nums">{amt(p.dr)}</td>
+                          <td className="px-4 py-1.5 text-right font-semibold tabular-nums">{amt(p.cr)}</td>
+                        </tr>
+                        {isOpen && (
+                          <tr className="bg-[#fffaf0]">
+                            <td />
+                            <td colSpan={5} className="px-4 pb-3 pt-1 text-xs text-slate-600">
+                              {v.postings.map((x, i) => <span key={i} className="block font-mono">{x.dr ? 'Dr' : '  Cr'} {x.ledger} · {amt(x.dr || x.cr)}</span>)}
+                              <span className="mt-1 block">
+                                {branchName(v.branch)} · added by {v.addedBy ?? '—'} on {fmtDateTime(v.addedAt)}{v.narration && <> · {v.narration}</>}
+                              </span>
+                              <span className="mt-2 flex gap-3">
+                                {v.receipt && (
+                                  <button disabled={!v.receipt.dataUrl} onClick={(e) => { e.stopPropagation(); if (v.receipt) openReceipt(v.receipt) }}
+                                    className="inline-flex items-center gap-1 font-medium text-[#7a2228] hover:underline disabled:text-slate-400 disabled:no-underline">
+                                    <Paperclip size={14} /> {v.receipt.dataUrl ? 'View receipt' : `${v.receipt.name} (not stored)`}
+                                  </button>
+                                )}
+                                {v.entryId && <Link to={`/admin/accounting/entry/${v.entryId}`} className="font-medium text-[#7a2228] hover:underline">Open day entry</Link>}
+                                {v.manualId && can('accounts', 'delete') && (
+                                  <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete ${v.type} voucher ${v.no}?`)) deleteManualVoucher(v.manualId!) }}
+                                    className="inline-flex items-center gap-1 font-medium text-rose-600 hover:underline"><Trash2 size={14} /> Delete voucher</button>
+                                )}
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+                <tfoot className="border-t-2 border-slate-300 text-sm">
+                  <tr>
+                    <td colSpan={4} className="px-4 pt-2 text-right text-slate-500">Opening Balance</td>
+                    <td className="px-4 pt-2 text-right tabular-nums">{half(opening, 'dr')}</td>
+                    <td className="px-4 pt-2 text-right tabular-nums">{half(opening, 'cr')}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={4} className="px-4 text-right text-slate-500">Current Total</td>
+                    <td className="px-4 text-right tabular-nums">{amt(totDr)}</td>
+                    <td className="px-4 text-right tabular-nums">{amt(totCr)}</td>
+                  </tr>
+                  <tr className="font-bold text-slate-900">
+                    <td colSpan={4} className="px-4 pb-3 text-right">Closing Balance</td>
+                    <td className="px-4 pb-3 text-right tabular-nums">{half(closingBal, 'dr')}</td>
+                    <td className="px-4 pb-3 text-right tabular-nums">{half(closingBal, 'cr')}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </>
         )}
       </div>
 
       {adding && (
         <AddLedgerDialog existing={names} by={by} onClose={() => setAdding(false)}
-          onAdded={(n) => { setAdding(false); setQ(''); setLedger(n); setNotice(`Ledger "${n}" created.`) }} />
+          onAdded={(n) => { setAdding(false); setQ(''); pickLedger(n); setNotice(`Ledger "${n}" created.`) }} />
       )}
-      {uploading && current && (
-        <UploadReceiptDialog ledger={current} branch={branch} by={by} onClose={() => setUploading(false)}
-          onSaved={(msg) => { setUploading(false); setNotice(msg) }} />
+      {dialog && current && (
+        <VoucherDialog ledger={current} names={names} branch={branch} by={by} pickFile={dialog === 'receipt'}
+          onClose={() => setDialog(null)} onSaved={(msg) => { setDialog(null); setNotice(msg) }} />
       )}
     </div>
   )

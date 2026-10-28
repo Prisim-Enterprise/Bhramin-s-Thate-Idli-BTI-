@@ -1,6 +1,6 @@
 import { branchName } from './mock'
 import { cashIn, type DayEntry, type PayoutType } from './entries'
-import { groupOf, type CustomLedger, type ManualVoucher, type ReceiptFile } from './ledgerStore'
+import { groupOf, sides, type CustomLedger, type ManualVoucher, type ReceiptFile } from './ledgerStore'
 
 // Tally-style account books built from day entries.
 // Each day entry becomes vouchers, exactly as the accountant posts them in Tally:
@@ -83,10 +83,11 @@ export function buildVouchers(entries: DayEntry[], manual: ManualVoucher[] = [],
     })
   }
   for (const m of manual) {
-    const from = m.paidFrom === 'bank' ? cr(BANK_LEDGER, 'bank', m.amount) : cr(imprestLedger(m.branch), 'cash', m.amount)
+    const s = sides(m, imprestLedger)
     out.push({
       id: 'm:' + m.id, manualId: m.id, date: m.date, branch: m.branch, type: m.type, narration: m.narration, receipt: m.receipt,
-      addedBy: m.addedBy, addedAt: m.addedAt, postings: [dr(m.ledger, groupOf(m.ledger, custom), m.amount), from],
+      addedBy: m.addedBy, addedAt: m.addedAt,
+      postings: [dr(s.dr, groupOf(s.dr, custom), m.amount), cr(s.cr, groupOf(s.cr, custom), m.amount)],
     })
   }
 
