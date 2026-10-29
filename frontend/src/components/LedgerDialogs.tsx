@@ -3,11 +3,12 @@ import { FileUp, Loader2, X } from 'lucide-react'
 import { Button, Field, inputCls } from './ui'
 import { BRANCHES, inr } from '../data/mock'
 import { BANK_LEDGER, GROUPS, imprestLedger, type GroupId } from '../data/books'
-import { addLedger, addManualVoucher, groupOf, useCustomLedgers, type ManualType, type ReceiptFile } from '../data/ledgerStore'
+import { API_ON } from '../lib/api'
+import { addLedger, addManualVoucher, groupOf, keepFile, useCustomLedgers, type ManualType, type ReceiptFile } from '../data/ledgerStore'
 import { pdfLines } from '../lib/readImprestPdf'
 
 const today = () => new Date().toISOString().slice(0, 10)
-const MAX_SAVED_FILE = 1_000_000 // bigger receipts keep only their name until the backend stores files
+const MAX_SAVED_FILE = 1_000_000 // without the cloud, bigger receipts keep only their name
 
 function Modal({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer: ReactNode }) {
   useEffect(() => {
@@ -83,15 +84,6 @@ async function readAmount(file: File): Promise<number | null> {
   }
 }
 
-function toDataUrl(file: File): Promise<string> {
-  return new Promise((res, rej) => {
-    const r = new FileReader()
-    r.onload = () => res(r.result as string)
-    r.onerror = rej
-    r.readAsDataURL(file)
-  })
-}
-
 /** Default Dr/Cr for a new voucher, based on the ledger you opened and the voucher type (like Tally). */
 function defaultsFor(type: ManualType, ledger: string, group: GroupId, bank: string, imprest: string): { dr: string; cr: string } {
   const isMoney = group === 'cash' || group === 'bank'
@@ -153,11 +145,7 @@ export function VoucherDialog({ ledger, names, branch: startBranch, by, pickFile
   const valid = dr && cr && dr.toLowerCase() !== cr.toLowerCase() && amount > 0 && !reading
 
   const save = async () => {
-    let receipt: ReceiptFile | undefined
-    if (file) {
-      receipt = { name: file.name, type: file.type, size: file.size }
-      if (file.size <= MAX_SAVED_FILE) receipt.dataUrl = await toDataUrl(file)
-    }
+    const receipt: ReceiptFile | undefined = file ? await keepFile(file, MAX_SAVED_FILE) : undefined
     const ok = addManualVoucher({
       id: crypto.randomUUID(), type, date, branch, drLedger: dr, crLedger: cr, amount, narration: narration.trim(), receipt,
       addedBy: by, addedAt: new Date().toISOString(),
@@ -211,7 +199,7 @@ export function VoucherDialog({ ledger, names, branch: startBranch, by, pickFile
       </button>
       <input ref={input} type="file" accept="application/pdf,image/*" hidden onChange={(e) => pick(e.target.files?.[0])} />
       {readNote && <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{readNote}</p>}
-      {file && file.size > MAX_SAVED_FILE && <p className="text-xs text-amber-700">This file is over 1 MB, so only its name is kept for now.</p>}
+      {file && !API_ON && file.size > MAX_SAVED_FILE && <p className="text-xs text-amber-700">This file is over 1 MB, so only its name is kept for now.</p>}
 
       {dr && cr && dr.toLowerCase() === cr.toLowerCase() && <p className="text-xs text-rose-600">Debit and credit must be different ledgers.</p>}
       <p className="rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-slate-700">

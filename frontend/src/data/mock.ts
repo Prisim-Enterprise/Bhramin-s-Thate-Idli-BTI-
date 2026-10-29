@@ -92,7 +92,8 @@ export const SALES_TREND: DaySales[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'
 
 export type OcrStatus = 'queued' | 'processing' | 'extracted' | 'verified' | 'failed'
 // original = the item name as written on the bill (e.g. Kannada), shown under the English name for checking.
-export type BillLine = { item: string; qty: number; unit: string; rate: number; gst: number; original?: string }
+// ledger = where this item is posted in Account Books (e.g. Vegetables Purchased).
+export type BillLine = { item: string; qty: number; unit: string; rate: number; gst: number; original?: string; ledger?: string }
 
 // What kind of writing the bill has. OCR uses a different reader for each.
 export type BillScript = 'en-hand' | 'kn-hand' | 'en-typed'
@@ -105,6 +106,12 @@ export type Bill = {
   id: string; vendor: string; branch: string; uploadedBy: string; date: string
   uploadedAt?: string // when it was uploaded (ISO date and time)
   status: OcrStatus; confidence: number; type: 'credit' | 'other'; script: BillScript; lines: BillLine[]
+  invoiceNo?: string
+  file?: { name: string; type: string; size: number; dataUrl?: string; key?: string } // the uploaded bill: in R2 (key) or in this browser (dataUrl)
+  cgst?: number; sgst?: number; igst?: number // tax as printed on the bill; worked out from the lines if not set
+  billTotal?: number // total printed on the bill
+  readNote?: string // what the reader found, shown when reviewing
+  voucherId?: string // the purchase voucher in Account Books, once posted
 }
 export const BILLS: Bill[] = []
 

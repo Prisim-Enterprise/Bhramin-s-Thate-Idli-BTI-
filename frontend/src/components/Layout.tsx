@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import SyncBadge from './SyncBadge'
 import {
   LayoutDashboard, ScanLine, BookOpenCheck, ClipboardList, Warehouse, ShoppingCart, Store,
   Settings2, Building2, IndianRupee, Receipt, Cpu, PackagePlus, MinusCircle, Wallet, Users, ShieldCheck,
@@ -194,6 +195,7 @@ export default function Layout({ portal, children }: { portal: keyof typeof PORT
           </span>
           {IS_DEMO && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">Demo · sample data</span>}
           <div className="ml-auto flex items-center gap-3">
+            <SyncBadge />
             <button className="relative text-slate-500 hover:text-slate-800" aria-label="Notifications">
               <Bell size={18} /><span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-rose-500" />
             </button>

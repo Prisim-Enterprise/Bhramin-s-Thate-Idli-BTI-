@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { syncAll } from '../data/cloudStore'
 import { ROLES, type RoleId } from '../data/mock'
 import { useApp } from './AppContext'
 
@@ -40,6 +41,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (supabase && session) setRole(roleOf(session))
   }, [session, setRole])
+
+  // Load the shared data from the cloud once signed in, and again when the tab is opened.
+  const signedIn = !!session
+  useEffect(() => {
+    if (!signedIn) return
+    void syncAll()
+    const onFocus = () => { if (document.visibilityState === 'visible') void syncAll() }
+    document.addEventListener('visibilitychange', onFocus)
+    return () => document.removeEventListener('visibilitychange', onFocus)
+  }, [signedIn])
 
   const signIn = async (email: string, password: string) => {
     if (!supabase) return null

@@ -1,0 +1,15 @@
+{
+  "name": "bti-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply bti-db --remote",
+    "db:migrate:local": "wrangler d1 migrations apply bti-db --local",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "4.155.0"
+  }
+}

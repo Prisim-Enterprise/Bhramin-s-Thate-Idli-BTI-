@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { cloudStore } from './cloudStore'
 
 // Day entries for a branch, in the same shape as the Tally Imprest Book.
 // Saved in this browser until the backend (Cloudflare) is ready.
@@ -72,35 +72,21 @@ export function blankEntry(branch = 'B1', date = new Date().toISOString().slice(
   }
 }
 
-// --- Store (localStorage, shared between components) ---
-const KEY = 'prisim.dayEntries'
-const listeners = new Set<() => void>()
-
-function read(): DayEntry[] {
-  try { return JSON.parse(localStorage.getItem(KEY) ?? '[]') } catch { return [] }
-}
-let entries: DayEntry[] = read()
-
-function write(next: DayEntry[]) {
-  entries = next
-  try { localStorage.setItem(KEY, JSON.stringify(next)) } catch { /* storage unavailable: keep in memory */ }
-  listeners.forEach((l) => l())
-}
+// --- Store (cloud database, with a copy in this browser) ---
+const store = cloudStore<DayEntry>('prisim.dayEntries', { kind: 'dayEntries', idOf: (e) => e.id })
+const write = (next: DayEntry[]) => store.set(next)
 
 export function useEntries(): DayEntry[] {
-  return useSyncExternalStore(
-    (l) => { listeners.add(l); return () => { listeners.delete(l) } },
-    () => entries,
-  )
+  return store.use()
 }
 
 export function getEntry(id: string) {
-  return entries.find((e) => e.id === id)
+  return store.get().find((e) => e.id === id)
 }
 
 /** Same branch + date as an existing entry (other than `id`). */
 export function findDuplicate(branch: string, date: string, id?: string) {
-  return entries.find((e) => e.branch === branch && e.date === date && e.id !== id)
+  return store.get().find((e) => e.branch === branch && e.date === date && e.id !== id)
 }
 
 /** Save an entry. `by` is the signed-in person's email. */
@@ -109,12 +95,12 @@ export function saveEntry(e: DayEntry, by: string): DayEntry {
   const saved: DayEntry = e.id
     ? { ...e, savedAt: now, editedBy: by }
     : { ...e, id: crypto.randomUUID(), savedAt: now, addedAt: now, addedBy: by }
-  write([saved, ...entries.filter((x) => x.id !== saved.id)].sort((a, b) => b.date.localeCompare(a.date)))
+  write([saved, ...store.get().filter((x) => x.id !== saved.id)].sort((a, b) => b.date.localeCompare(a.date)))
   return saved
 }
 
 export function deleteEntry(id: string) {
-  write(entries.filter((e) => e.id !== id))
+  write(store.get().filter((e) => e.id !== id))
 }
 
 /** Entries in the given month (yyyy-mm); all months when omitted. */

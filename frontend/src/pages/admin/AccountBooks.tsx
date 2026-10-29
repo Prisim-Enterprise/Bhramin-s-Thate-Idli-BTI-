@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, BookText, CheckCircle2, ChevronDown, ChevronRight, FileUp, Paperclip, Plus, Search, Trash2 } from 'lucide-react'
 import { Button, Card, EmptyState, inputCls } from '../../components/ui'
 import { AddLedgerDialog, VoucherDialog } from '../../components/LedgerDialogs'
@@ -30,9 +30,11 @@ const LABEL = Object.fromEntries(MENU.flatMap((g) => g.items.map((i) => [i.id, i
 
 export default function AccountBooks() {
   const all = useEntries()
+  // ?book=ledger&ledger=Name opens a ledger directly (used by the OCR Bill Inbox).
+  const [params] = useSearchParams()
   const [branch, setBranch] = useState('ALL')
-  const [book, setBook] = useState<BookId>('cash')
-  const [ledger, setLedger] = useState('')
+  const [book, setBook] = useState<BookId>((params.get('book') as BookId) || 'cash')
+  const [ledger, setLedger] = useState(params.get('ledger') ?? '')
   const [group, setGroup] = useState<GroupId>('indirectExp')
 
   const manualAll = useManualVouchers()
@@ -340,6 +342,7 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
                                   </button>
                                 )}
                                 {v.entryId && <Link to={`/admin/accounting/entry/${v.entryId}`} className="font-medium text-[#7a2228] hover:underline">Open day entry</Link>}
+                                {v.billId && <Link to={`/admin/accounting/bills?id=${v.billId}`} className="font-medium text-[#7a2228] hover:underline">Open bill</Link>}
                                 {v.manualId && can('accounts', 'delete') && (
                                   <button onClick={(e) => { e.stopPropagation(); if (confirm(`Delete ${v.type} voucher ${v.no}?`)) deleteManualVoucher(v.manualId!) }}
                                     className="inline-flex items-center gap-1 font-medium text-rose-600 hover:underline"><Trash2 size={14} /> Delete voucher</button>

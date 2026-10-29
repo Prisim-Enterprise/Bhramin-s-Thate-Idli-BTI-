@@ -1,0 +1,21 @@
+# BTI API on Cloudflare Workers: database (D1) + bill files (R2).
+# No secrets live here. Only public values (Supabase URL and publishable key).
+name = "bti-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[vars]
+SUPABASE_URL = "https://lkmibidtkzrmkohoprgd.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_VU8VNcKmFNm92gXSXD0KAg_DVRxlkNi"
+# Websites allowed to call this API (comma separated).
+ALLOWED_ORIGINS = "https://bhramin-s-thate-idli-bti.vercel.app,http://localhost:5173"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bti-db"
+database_id = "07121c41-e4d1-451e-a2d1-97c88cb614dd"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "bhraminsthateidli"

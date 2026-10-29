@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from 'react'
+import { cloudStore } from './cloudStore'
+import { API_ON, dataUrlToBlob, fileBlob, uploadFile } from '../lib/api'
 import { guessType, type PayoutType } from './entries'
 import type { GroupId } from './books'
 
@@ -13,9 +14,30 @@ export type CustomLedger = {
   addedAt: string
 }
 
-export type ReceiptFile = { name: string; type: string; size: number; dataUrl?: string }
+// key = where the file is kept in R2 (cloud). dataUrl = the file kept in this browser (before the cloud, or offline).
+export type ReceiptFile = { name: string; type: string; size: number; dataUrl?: string; key?: string }
 
-export type ManualType = 'Payment' | 'Receipt' | 'Journal' | 'Contra'
+/** Move a file kept in the browser to R2. Returns the same object if there's nothing to move. */
+export async function fileToCloud<F extends ReceiptFile>(f: F | undefined): Promise<F | undefined> {
+  if (!API_ON || !f?.dataUrl || f.key) return f
+  const key = await uploadFile(await dataUrlToBlob(f.dataUrl), f.name)
+  return { ...f, key, dataUrl: undefined }
+}
+
+/** Save a newly picked file: to R2 when the cloud is on, otherwise in the browser if it's small. */
+export async function keepFile(file: File, maxInBrowser = 1024 * 1024): Promise<ReceiptFile> {
+  const f: ReceiptFile = { name: file.name, type: file.type, size: file.size }
+  if (API_ON) {
+    try { return { ...f, key: await uploadFile(file, file.name) } } catch { /* offline: fall back to the browser */ }
+  }
+  if (file.size <= maxInBrowser) f.dataUrl = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(file) })
+  return f
+}
+
+export type ManualType = 'Payment' | 'Receipt' | 'Journal' | 'Contra' | 'Purchase'
+
+/** One line of a voucher with several ledgers (e.g. a purchase bill split into vegetables, groceries, GST). */
+export type VoucherLine = { ledger: string; dr: number; cr: number }
 
 export type ManualVoucher = {
   id: string
@@ -27,34 +49,20 @@ export type ManualVoucher = {
   ledger?: string // older vouchers: debited
   paidFrom?: 'imprest' | 'bank' // older vouchers: credited
   amount: number
+  lines?: VoucherLine[] // several ledgers; when set, drLedger/crLedger are just the main ones
+  billId?: string // posted from the OCR Bill Inbox
   narration: string
   receipt?: ReceiptFile
   addedBy: string
   addedAt: string
 }
 
-// Small store kept in localStorage, shared across components.
-function store<T>(key: string) {
-  const listeners = new Set<() => void>()
-  let data: T[] = (() => { try { return JSON.parse(localStorage.getItem(key) ?? '[]') as T[] } catch { return [] } })()
-  return {
-    get: () => data,
-    set(next: T[]): boolean {
-      try {
-        localStorage.setItem(key, JSON.stringify(next))
-      } catch {
-        return false // full or unavailable
-      }
-      data = next
-      listeners.forEach((l) => l())
-      return true
-    },
-    use: () => useSyncExternalStore((l) => { listeners.add(l); return () => { listeners.delete(l) } }, () => data),
-  }
-}
-
-const ledgers = store<CustomLedger>('prisim.ledgers')
-const vouchers = store<ManualVoucher>('prisim.manualVouchers')
+const ledgers = cloudStore<CustomLedger>('prisim.ledgers', { kind: 'ledgers', idOf: (l) => l.name })
+const vouchers = cloudStore<ManualVoucher>('prisim.manualVouchers', {
+  kind: 'manualVouchers',
+  idOf: (v) => v.id,
+  prepare: async (v) => { const r = await fileToCloud(v.receipt); return r === v.receipt ? v : { ...v, receipt: r } },
+})
 
 export const useCustomLedgers = ledgers.use
 export const useManualVouchers = vouchers.use
@@ -66,6 +74,12 @@ export function addLedger(l: CustomLedger) {
 /** Returns false if the browser had no room to save it (usually a large receipt file). */
 export function addManualVoucher(v: ManualVoucher) {
   return vouchers.set([...vouchers.get(), v])
+}
+
+/** Debit lines of a voucher, whether it has two ledgers or many. */
+export function debitLines(m: ManualVoucher, imprestOf: (branch: string) => string): VoucherLine[] {
+  if (m.lines?.length) return m.lines.filter((l) => l.dr)
+  return [{ ledger: sides(m, imprestOf).dr, dr: m.amount, cr: 0 }]
 }
 
 export function deleteManualVoucher(id: string) {
@@ -88,7 +102,8 @@ export function groupOf(name: string, custom: CustomLedger[]): GroupId {
   if (/bank|o\/d a\/c|\bod a\/c/i.test(name)) return 'bank'
   if (/^(mobikwik|swiggy|zomato|rapido)/i.test(name)) return 'debtors'
   if (/^sales/i.test(name)) return 'sales'
-  if (/output (c|s|i)gst/i.test(name)) return 'duties'
+  if (/(output|input) (c|s|i)gst/i.test(name)) return 'duties'
+  if (/^round off$/i.test(name)) return 'indirectInc'
   if (/traders|suppliers|enterprises|agencies|stores/i.test(name)) return 'creditors'
   return ({ expense: 'indirectExp', purchase: 'purchase', salary: 'liabilities' } as const)[guessType(name)]
 }
@@ -101,8 +116,12 @@ export function reportOf(group: GroupId): PayoutType | null {
   return null
 }
 
-/** Open a saved receipt in a new tab. */
+/** Open a saved receipt or bill in a new tab (from R2, or from this browser). */
 export function openReceipt(r: ReceiptFile) {
-  if (!r.dataUrl) return
-  fetch(r.dataUrl).then((res) => res.blob()).then((b) => window.open(URL.createObjectURL(b), '_blank', 'noopener'))
+  if (!r.key && !r.dataUrl) return
+  const w = window.open('', '_blank') // opened now so the browser doesn't block it as a pop-up
+  const blob = r.key ? fileBlob(r.key) : fetch(r.dataUrl!).then((res) => res.blob())
+  blob
+    .then((b) => { if (w) { w.opener = null; w.location.href = URL.createObjectURL(b) } })
+    .catch(() => { w?.close(); alert('Could not open the file. Check your connection and try again.') })
 }

@@ -8,7 +8,7 @@ import {
   PAYOUT_TYPES, billTotal, cashIn, closing, deleteEntry, fmtDateTime, inMonth, niceDate, paidOut, useEntries, viaApps, type PayoutType,
 } from '../data/entries'
 import { readImprestPdf } from '../lib/readImprestPdf'
-import { groupOf, reportOf, sides, useCustomLedgers, useManualVouchers } from '../data/ledgerStore'
+import { debitLines, groupOf, reportOf, useCustomLedgers, useManualVouchers } from '../data/ledgerStore'
 import { imprestLedger } from '../data/books'
 
 /** "Enter manually" and "Upload PDF" buttons. Both open the day entry screen. */
@@ -135,9 +135,10 @@ export function usePayoutRows(type: PayoutType, month?: string) {
       key: e.id + i, date: e.date, branch: e.branch, ledger: p.ledger, amount: p.amount, from: 'Day entry',
     }))),
     // A voucher counts toward a report by the ledger it debits (e.g. Dr Groceries Purchased -> Purchases).
-    ...manual.map((m) => ({ m, dr: sides(m, imprestLedger).dr }))
-      .filter(({ dr }) => reportOf(groupOf(dr, custom)) === type)
-      .map(({ m, dr }) => ({ key: m.id, date: m.date, branch: m.branch, ledger: dr, amount: m.amount, from: `${m.type} voucher` })),
+    // A purchase bill can debit several ledgers (vegetables, groceries …); each counts on its own.
+    ...manual.flatMap((m) => debitLines(m, imprestLedger).map((l, i) => ({ m, l, i })))
+      .filter(({ l }) => reportOf(groupOf(l.ledger, custom)) === type)
+      .map(({ m, l, i }) => ({ key: m.id + i, date: m.date, branch: m.branch, ledger: l.ledger, amount: l.dr, from: m.billId ? 'Bill (OCR inbox)' : `${m.type} voucher` })),
   ].sort((a, b) => b.date.localeCompare(a.date))
 }
 

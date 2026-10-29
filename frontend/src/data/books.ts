@@ -34,7 +34,8 @@ export type Voucher = {
   type: VchType
   postings: Posting[]
   entryId?: string // from a day entry
-  manualId?: string // posted from an uploaded receipt
+  manualId?: string // posted from an uploaded receipt or bill
+  billId?: string // posted from the OCR Bill Inbox
   narration?: string
   receipt?: ReceiptFile
   addedBy?: string
@@ -85,9 +86,11 @@ export function buildVouchers(entries: DayEntry[], manual: ManualVoucher[] = [],
   for (const m of manual) {
     const s = sides(m, imprestLedger)
     out.push({
-      id: 'm:' + m.id, manualId: m.id, date: m.date, branch: m.branch, type: m.type, narration: m.narration, receipt: m.receipt,
+      id: 'm:' + m.id, manualId: m.id, billId: m.billId, date: m.date, branch: m.branch, type: m.type, narration: m.narration, receipt: m.receipt,
       addedBy: m.addedBy, addedAt: m.addedAt,
-      postings: [dr(s.dr, groupOf(s.dr, custom), m.amount), cr(s.cr, groupOf(s.cr, custom), m.amount)],
+      postings: m.lines?.length
+        ? m.lines.filter((l) => l.dr || l.cr).map((l) => ({ ledger: l.ledger, group: groupOf(l.ledger, custom), dr: l.dr, cr: l.cr }))
+        : [dr(s.dr, groupOf(s.dr, custom), m.amount), cr(s.cr, groupOf(s.cr, custom), m.amount)],
     })
   }
 
