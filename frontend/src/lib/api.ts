@@ -2,7 +2,8 @@ import { supabase } from './supabase'
 
 // Talks to the BTI API on Cloudflare (D1 database + R2 files).
 // Off when VITE_API_URL is not set: the app then keeps data in this browser only.
-const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, '')
+// The address is public (every request still needs a login). VITE_API_URL can point somewhere else.
+const BASE = ((import.meta.env.VITE_API_URL as string | undefined) || 'https://bti-api.bti-api.workers.dev').replace(/\/+$/, '')
 export const API_ON = !!BASE && !!supabase
 
 async function token(): Promise<string> {
