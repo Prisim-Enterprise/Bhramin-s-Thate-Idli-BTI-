@@ -25,13 +25,20 @@ function tallyDate(s: string): string | null {
 }
 
 /** Pull the text out of the PDF, one string per printed line. */
-export async function pdfLines(file: File): Promise<string[]> {
+export async function pdfLines(file: Blob): Promise<string[]> {
+  return (await pdfPageLines(file)).flat()
+}
+
+/** The text of each page separately (one bill per page in a stack of scanned bills). */
+export async function pdfPageLines(file: Blob): Promise<string[][]> {
   const pdfjs = await import('pdfjs-dist')
   const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
   pdfjs.GlobalWorkerOptions.workerSrc = worker.default
   const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise
-  const lines: string[] = []
+  const pages: string[][] = []
   for (let p = 1; p <= doc.numPages; p++) {
+    const lines: string[] = []
+    pages.push(lines)
     const page = await doc.getPage(p)
     const content = await page.getTextContent()
     // Group text pieces by their height on the page, then sort left to right.
@@ -46,7 +53,7 @@ export async function pdfLines(file: File): Promise<string[]> {
       .sort((a, b) => b[0] - a[0])
       .forEach(([, parts]) => lines.push(parts.sort((a, b) => a.x - b.x).map((q) => q.s).join(' ').replace(/\s+/g, ' ')))
   }
-  return lines
+  return pages
 }
 
 export async function readImprestPdf(file: File): Promise<ReadResult> {

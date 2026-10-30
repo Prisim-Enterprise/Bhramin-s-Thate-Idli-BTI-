@@ -13,6 +13,8 @@ const bills = cloudStore<Bill>('prisim.bills', {
 if (!bills.get().length && BILLS.length) bills.set(BILLS)
 
 export const useBills = bills.use
+/** The latest list, outside React (e.g. after a bill finishes reading). */
+export const getBills = () => bills.get()
 
 /** Returns false if the browser had no room (usually a large bill file). */
 export function saveBill(b: Bill): boolean {

@@ -5,6 +5,8 @@ import tailwindcss from '@tailwindcss/vite'
 // `--mode share` builds a single self-contained page for sharing (see scripts/make-share.mjs).
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
+  // Prepare these up front so the dev server doesn't reload the page the first time a bill is read.
+  optimizeDeps: { include: ['tesseract.js', 'pdfjs-dist'] },
   ...(mode === 'share' && {
     base: './',
     build: {

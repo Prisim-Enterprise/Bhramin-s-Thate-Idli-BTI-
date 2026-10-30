@@ -28,7 +28,10 @@ export async function fileToCloud<F extends ReceiptFile>(f: F | undefined): Prom
 export async function keepFile(file: File, maxInBrowser = 1024 * 1024): Promise<ReceiptFile> {
   const f: ReceiptFile = { name: file.name, type: file.type, size: file.size }
   if (API_ON) {
-    try { return { ...f, key: await uploadFile(file, file.name) } } catch { /* offline: fall back to the browser */ }
+    // Two tries: a dropped connection shouldn't lose the file.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { return { ...f, key: await uploadFile(file, file.name) } } catch { /* try again, then fall back to the browser */ }
+    }
   }
   if (file.size <= maxInBrowser) f.dataUrl = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(file) })
   return f

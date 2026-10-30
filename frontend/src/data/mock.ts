@@ -93,7 +93,7 @@ export const SALES_TREND: DaySales[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'
 export type OcrStatus = 'queued' | 'processing' | 'extracted' | 'verified' | 'failed'
 // original = the item name as written on the bill (e.g. Kannada), shown under the English name for checking.
 // ledger = where this item is posted in Account Books (e.g. Vegetables Purchased).
-export type BillLine = { item: string; qty: number; unit: string; rate: number; gst: number; original?: string; ledger?: string }
+export type BillLine = { item: string; qty: number; unit: string; rate: number; gst: number; original?: string; ledger?: string; unsure?: boolean }
 
 // What kind of writing the bill has. OCR uses a different reader for each.
 export type BillScript = 'en-hand' | 'kn-hand' | 'en-typed'
