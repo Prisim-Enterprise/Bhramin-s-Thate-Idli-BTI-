@@ -6,7 +6,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   // Prepare these up front so the dev server doesn't reload the page the first time a bill is read.
-  optimizeDeps: { include: ['tesseract.js', 'pdfjs-dist'] },
+  optimizeDeps: { include: ['pdfjs-dist'] },
   ...(mode === 'share' && {
     base: './',
     build: {

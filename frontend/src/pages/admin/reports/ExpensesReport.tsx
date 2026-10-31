@@ -1,149 +1,99 @@
-import { useState } from 'react'
-import { Check, Receipt, X } from 'lucide-react'
-import { Badge, Button, Card } from '../../../components/ui'
-import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money, per100 } from '../../../components/report'
+import { Receipt } from 'lucide-react'
+import { Badge, Card, Table } from '../../../components/ui'
+import { Big, EmptyReport, ReportHeader, ScopePicker, ShareBar, Summary, Tile, downloadCsv, money, per100 } from '../../../components/report'
+import { AddEntryButtons } from '../../../components/DayEntries'
 import { useApp } from '../../../context/AppContext'
-import { EXPENSES, branchName } from '../../../data/mock'
-import { OUTLETS, buildPnl } from '../../../data/pnl'
-import { EntriesOnly, EntryPayouts, usePayoutRows } from '../../../components/DayEntries'
+import { BRANCHES, branchName, inr } from '../../../data/mock'
+import { niceDate } from '../../../data/entries'
+import { byBranch, monthName, profitLoss, useReportData } from '../../../data/analytics'
 
-const STATUS: Record<string, [string, 'green' | 'amber' | 'red']> = {
-  approved: ['Approved', 'green'],
-  pending: ['Waiting for approval', 'amber'],
-  rejected: ['Rejected', 'red'],
-}
-
+// Where the money went: every expense and salary line from Imprest Books, posted bills and vouchers.
 export default function ExpensesReport() {
-  const hasEntries = usePayoutRows('expense').length > 0
   const { can } = useApp()
-  const [claims, setClaims] = useState(EXPENSES)
-  const p = buildPnl(OUTLETS.map((b) => b.id), 'this')
+  const R = useReportData()
+  const p = profitLoss(R.d, R.scope)
+  const lines = p.lines.filter((l) => l.type !== 'purchase')
+  const spent = p.running + p.staff
+  const all = [...p.expensesByLedger, ...p.salariesByLedger].sort((a, b) => b.v - a.v)
+  const branches = R.branch ? [] : byBranch(R.d, R.scope)
+    .map(({ b, p: q }) => ({ b, cost: q.running + q.staff, sales: q.sales.food }))
+    .filter((x) => x.cost).sort((a, b) => b.cost - a.cost)
+  const fromBills = lines.filter((l) => l.from === 'Bill').reduce((s, l) => s + l.amount, 0)
+  const picker = <ScopePicker months={R.months} month={R.month} setMonth={R.setMonth} branch={R.branch} setBranch={R.setBranch} monthName={monthName} branches={BRANCHES} />
+  const upload = <AddEntryButtons disabled={!can('accounts', 'create')} />
 
-  // Every rupee of sales, split into where it went. Profit is what's left.
-  const lines = [
-    { label: 'Ingredients (food & groceries)', v: p.food },
-    ...p.expenses.map((e) => ({ label: e.label, v: e.v })),
-    { label: 'Wear & tear of equipment', v: p.depreciation },
-  ].sort((a, b) => b.v - a.v)
-  const spent = lines.reduce((s, l) => s + l.v, 0)
-  const runningCosts = p.opex + p.depreciation
-  const biggest = lines.filter((l) => !l.label.startsWith('Ingredients'))[0]
-  const waiting = claims.filter((c) => c.status === 'pending')
-
-  const perOutlet = OUTLETS.map((b) => {
-    const q = buildPnl([b.id], 'this')
-    return { b, cost: q.opex + q.depreciation, sales: q.sales }
-  }).sort((a, b) => b.cost / b.sales - a.cost / a.sales)
-
-  const setStatus = (id: string, status: string) => setClaims((xs) => xs.map((x) => (x.id === id ? { ...x, status } : x)))
-
-  const csv = () => downloadCsv('BTI-Expenses-Report-Oct-2026.csv', [
-    ['Expense', 'Amount', 'Out of every Rs 100 of sales'],
-    ...lines.map((l) => [l.label, Math.round(l.v), per100(l.v, p.sales).replace('₹', '')]),
-    ['Profit left', Math.round(p.net), per100(p.net, p.sales).replace('₹', '')],
-  ])
-
-  if (!spent && !claims.length) {
-    if (hasEntries) return <EntriesOnly title="Expenses Report"><EntryPayouts type="expense" /></EntriesOnly>
-    return <EmptyReport title="Expenses Report" period="October 2026" icon={Receipt}
-      text="Running costs and expense claims from outlets show up here once they are recorded." />
+  if (!lines.length) {
+    return <EmptyReport title="Expenses Report" period={R.hasData ? `${R.label} · no expenses yet` : 'Worked out from Imprest Books and bills'} icon={Receipt}
+      actions={<>{R.hasData && picker}{upload}</>}
+      text="Expenses paid out of branch cash (Imprest Book) and expense bills posted from the OCR Bill Inbox (gas, cleaning, repairs, conveyance…) show up here automatically." />
   }
+
+  const csv = () => downloadCsv(`BTI-Expenses-${R.month || 'all'}.csv`, [
+    ['Date', 'Branch', 'Ledger', 'Kind', 'From', 'Amount'],
+    ...lines.map((l) => [l.date, branchName(l.branch), l.ledger, l.type === 'salary' ? 'Staff' : 'Running cost', l.from, l.amount]),
+  ])
 
   return (
     <div className="mx-auto max-w-7xl">
-      <ReportHeader title="Expenses Report" period="October 2026 · all outlets · where the money went" onCsv={csv} />
-      <div className="mb-4"><EntryPayouts type="expense" /></div>
+      <ReportHeader title="Expenses Report" period={`${R.label} · ${R.branch ? branchName(R.branch) : 'all branches'} · where the money went`} actions={<>{picker}{upload}</>} onCsv={csv} />
 
       <Summary points={[
-        <>Out of every <Big>₹100</Big> BTI earned, <Big>{per100(p.food, p.sales)}</Big> went on ingredients and <Big>{per100(runningCosts, p.sales)}</Big> on running the outlets. <Big>{per100(p.net, p.sales)}</Big> was left as profit.</>,
-        <>The biggest cost after ingredients is <Big>{biggest.label.toLowerCase()}</Big>: {money(biggest.v)}, or {per100(biggest.v, p.sales)} of every ₹100.</>,
-        <>Running costs (everything except ingredients) came to <Big>{money(runningCosts)}</Big> this month.</>,
-        <><Big>{perOutlet[0].b.name}</Big> has the highest running costs compared with its sales ({per100(perOutlet[0].cost, perOutlet[0].sales)} of every ₹100).</>,
-        waiting.length
-          ? <><Big>{waiting.length} expense claims</Big> ({money(waiting.reduce((s, c) => s + c.amount, 0), false)}) are waiting for approval.</>
-          : <>No expense claims are waiting for approval.</>,
-      ]} />
+        <><Big>{money(spent)}</Big> was spent on running costs and staff{p.sales.food ? <>, which is <Big>{per100(spent, p.sales.food)}</Big> of every ₹100 of food sold</> : null}.</>,
+        all[0] && <>The biggest item is <Big>{all[0].k}</Big>: {money(all[0].v)}{spent ? ` (${Math.round((all[0].v / spent) * 100)}% of the total)` : ''}.</>,
+        p.staff ? <>Staff costs (salaries paid, advances) came to <Big>{money(p.staff)}</Big>.</> : <>No salary payments were recorded in this period.</>,
+        fromBills ? <><Big>{money(fromBills)}</Big> came from bills posted in the OCR Bill Inbox; the rest was paid from branch cash in the Imprest Book.</> : <>Everything here was paid from branch cash (Imprest Book).</>,
+        branches.length > 1 ? <><Big>{branches[0].b.name}</Big> spent the most ({money(branches[0].cost)}).</> : null,
+      ].filter(Boolean)} />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Tile label="Total spent" value={money(spent)} note="Ingredients + running costs" />
-        <Tile label="Ingredients" value={money(p.food)} note={`${per100(p.food, p.sales)} of every ₹100`} />
-        <Tile label="Running costs" value={money(runningCosts)} note={`${per100(runningCosts, p.sales)} of every ₹100`} />
-        <Tile label="Left as profit" value={money(p.net)} note={`${per100(p.net, p.sales)} of every ₹100`} tone={p.net >= 0 ? 'green' : 'red'} />
+        <Tile label="Total spent" value={money(spent)} note={`${lines.length} payment lines`} />
+        <Tile label="Running costs" value={money(p.running)} note={p.sales.food ? `${per100(p.running, p.sales.food)} of every ₹100 sold` : undefined} />
+        <Tile label="Staff" value={money(p.staff)} note={p.sales.food ? `${per100(p.staff, p.sales.food)} of every ₹100 sold` : undefined} />
+        <Tile label="From posted bills" value={money(fromBills)} note="OCR Bill Inbox" />
       </div>
-
-      {/* Every ₹100 strip */}
-      <Card className="mt-4" title="Every ₹100 of sales, split up">
-        <div className="flex h-10 overflow-hidden rounded-lg text-xs font-medium text-white">
-          {[
-            { label: 'Ingredients', v: p.food, c: '#7a2228' },
-            { label: 'Staff', v: p.expenses.find((e) => e.key === 'salaries')!.v, c: '#a0412f' },
-            { label: 'Rent', v: p.expenses.find((e) => e.key === 'rent')!.v, c: '#c06a35' },
-            { label: 'Other costs', v: runningCosts - p.expenses.find((e) => e.key === 'salaries')!.v - p.expenses.find((e) => e.key === 'rent')!.v, c: '#d9a441' },
-            { label: 'Profit', v: Math.max(0, p.net), c: '#15803d' },
-          ].map((s) => (
-            <div key={s.label} title={`${s.label}: ${money(s.v)}`} className="grid min-w-0 place-items-center truncate px-1" style={{ width: (s.v / p.sales) * 100 + '%', background: s.c }}>
-              {s.label} {per100(s.v, p.sales)}
-            </div>
-          ))}
-        </div>
-      </Card>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-5">
         <Card title="Where the money went" className="lg:col-span-3" pad={false}>
           <ul className="divide-y divide-slate-100">
-            {lines.map((l) => (
-              <li key={l.label} className="px-4 py-2.5">
+            {all.map((l) => (
+              <li key={l.k} className="px-4 py-2.5">
                 <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
-                  <span>{l.label}</span>
-                  <span className="shrink-0 tabular-nums"><b>{money(l.v, false)}</b> <span className="ml-1 text-xs text-slate-500">{per100(l.v, p.sales)} of ₹100</span></span>
+                  <span>{l.k}</span>
+                  <span className="shrink-0 tabular-nums"><b>{money(l.v, false)}</b>{p.sales.food ? <span className="ml-1 text-xs text-slate-500">{per100(l.v, p.sales.food)} of ₹100</span> : null}</span>
                 </div>
-                <ShareBar value={l.v} max={lines[0].v} />
+                <ShareBar value={l.v} max={all[0].v} />
               </li>
             ))}
-            <li className="flex justify-between bg-emerald-50 px-4 py-3 text-sm font-semibold">
-              <span>Left as profit</span><span className="tabular-nums text-emerald-700">{money(p.net, false)}</span>
-            </li>
           </ul>
         </Card>
-
-        <Card title="Running costs by outlet" className="lg:col-span-2" pad={false}>
-          <ul className="divide-y divide-slate-100">
-            {perOutlet.map(({ b, cost, sales }) => (
-              <li key={b.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                <span>
-                  <span className="block font-medium">{b.name}</span>
-                  <span className="block text-xs text-slate-500">{per100(cost, sales)} of every ₹100 it sells</span>
-                </span>
-                <b className="tabular-nums">{money(cost)}</b>
-              </li>
-            ))}
-          </ul>
-          <p className="border-t border-slate-100 px-4 py-2.5 text-xs text-slate-500">Running costs = everything except ingredients, including each outlet's share of the central kitchen.</p>
+        <Card title={R.branch ? 'Branch' : 'By branch'} className="lg:col-span-2" pad={false}>
+          {R.branch ? <p className="px-4 py-3 text-sm">Showing {branchName(R.branch)} only.</p> : (
+            <ul className="divide-y divide-slate-100">
+              {branches.map(({ b, cost, sales }) => (
+                <li key={b.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <span><span className="block font-medium">{b.name}</span>
+                    <span className="block text-xs text-slate-500">{sales ? `${per100(cost, sales)} of every ₹100 it sells` : 'No sales recorded'}</span></span>
+                  <b className="tabular-nums">{money(cost)}</b>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       </div>
 
-      <Card title="Expense claims from outlets" className="mt-4" pad={false}>
-        <ul className="divide-y divide-slate-100">
-          {claims.map((c) => {
-            const [label, tone] = STATUS[c.status]
-            return (
-              <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">{c.desc}</span>
-                  <span className="block text-xs text-slate-500">{branchName(c.branch)} · {c.category} · {c.date}</span>
-                </span>
-                <b className="text-sm tabular-nums">{money(c.amount, false)}</b>
-                <Badge tone={tone}>{label}</Badge>
-                {c.status === 'pending' && can('expenses', 'approve') && (
-                  <span className="flex gap-1">
-                    <Button size="sm" icon={Check} onClick={() => setStatus(c.id, 'approved')}>Approve</Button>
-                    <Button size="sm" variant="ghost" icon={X} onClick={() => setStatus(c.id, 'rejected')}>Reject</Button>
-                  </span>
-                )}
-              </li>
-            )
-          })}
-        </ul>
+      <Card title="Every payment" className="mt-4" pad={false}>
+        <Table head={['Date', 'Branch', 'What for', 'From', 'Amount']}>
+          {lines.map((l) => (
+            <tr key={l.key}>
+              <td>{niceDate(l.date)}</td>
+              <td className="font-medium text-slate-900">{branchName(l.branch)}</td>
+              <td>{l.ledger}{l.type === 'salary' && <Badge tone="blue">staff</Badge>}</td>
+              <td className="text-slate-500">{l.from}{l.vendor ? ` · ${l.vendor}` : ''}</td>
+              <td className="tabular-nums">{inr(l.amount)}</td>
+            </tr>
+          ))}
+          <tr className="bg-slate-50 font-semibold"><td colSpan={4}>Total</td><td className="tabular-nums">{inr(spent)}</td></tr>
+        </Table>
       </Card>
     </div>
   )

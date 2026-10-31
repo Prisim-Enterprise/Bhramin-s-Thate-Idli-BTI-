@@ -1,8 +1,8 @@
-// Tesseract OCR running inside the page (tesseract.js): no install, works on every device.
-// Good for printed bills; handwriting goes to the AI reader instead (see readBill.ts).
+// Image helpers for bill uploads. Handwritten and scanned bills are read by Sarvam on the server
+// (see readBill.ts); these only prepare the images in the browser.
 
-/** Make a photo small enough to read quickly and send cheaply (longest side ≤ maxSide, JPEG). */
-export async function shrinkImage(blob: Blob, maxSide = 2000): Promise<Blob> {
+/** Make a photo small enough to send quickly (longest side ≤ maxSide, JPEG). */
+export async function shrinkImage(blob: Blob, maxSide = 2200): Promise<Blob> {
   const bmp = await createImageBitmap(blob)
   const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height))
   if (scale === 1 && blob.type === 'image/jpeg' && blob.size < 4_000_000) return blob
@@ -10,15 +10,24 @@ export async function shrinkImage(blob: Blob, maxSide = 2000): Promise<Blob> {
   canvas.width = Math.round(bmp.width * scale)
   canvas.height = Math.round(bmp.height * scale)
   canvas.getContext('2d')!.drawImage(bmp, 0, 0, canvas.width, canvas.height)
-  return new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('Could not read the image'))), 'image/jpeg', 0.85))
+  return new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('Could not read the image'))), 'image/jpeg', 0.88))
 }
 
-/** Turn each page of a scanned PDF into an image (first few pages only). */
-export async function pdfPagesToImages(file: Blob, maxPages = 3): Promise<Blob[]> {
+async function openPdf(file: Blob) {
   const pdfjs = await import('pdfjs-dist')
   const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
   pdfjs.GlobalWorkerOptions.workerSrc = worker.default
-  const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise
+  return pdfjs.getDocument({ data: await file.arrayBuffer() }).promise
+}
+
+/** Number of pages in a PDF. */
+export async function pdfPageCount(file: Blob): Promise<number> {
+  return (await openPdf(file)).numPages
+}
+
+/** Turn each page of a PDF into an image (one bill per page). */
+export async function pdfPagesToImages(file: Blob, maxPages = 40): Promise<Blob[]> {
+  const doc = await openPdf(file)
   const out: Blob[] = []
   for (let p = 1; p <= Math.min(doc.numPages, maxPages); p++) {
     const page = await doc.getPage(p)
@@ -30,24 +39,4 @@ export async function pdfPagesToImages(file: Blob, maxPages = 3): Promise<Blob[]
     out.push(await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('render failed'))), 'image/jpeg', 0.9)))
   }
   return out
-}
-
-/** Read the text in images. lang: 'eng', or 'kan+eng' for Kannada bills. */
-export async function ocrImages(images: Blob[], lang: string, onProgress?: (pct: number) => void): Promise<{ lines: string[]; confidence: number }> {
-  const { createWorker } = await import('tesseract.js')
-  const worker = await createWorker(lang, 1, {
-    logger: (m: { status: string; progress: number }) => { if (m.status === 'recognizing text') onProgress?.(Math.round(m.progress * 100)) },
-  })
-  try {
-    const lines: string[] = []
-    let conf = 0
-    for (const img of images) {
-      const { data } = await worker.recognize(img)
-      lines.push(...data.text.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean))
-      conf += data.confidence
-    }
-    return { lines, confidence: Math.round(conf / Math.max(1, images.length)) }
-  } finally {
-    await worker.terminate()
-  }
 }

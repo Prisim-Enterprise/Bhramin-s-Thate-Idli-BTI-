@@ -1,16 +1,17 @@
 import { useState, type ReactNode } from 'react'
-import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import SyncBadge from './SyncBadge'
+import AdminNav, { allSideLinks } from './AdminNav'
+import AccountMenu from './AccountMenu'
+import { DashboardsOffBanner } from './DashboardPower'
 import {
-  LayoutDashboard, ScanLine, BookOpenCheck, ClipboardList, Warehouse, ShoppingCart, Store,
-  Settings2, Building2, IndianRupee, Receipt, Cpu, PackagePlus, MinusCircle, Wallet, Users, ShieldCheck,
-  Plug, Scale, Calculator, Library, ChevronRight, ChefHat, SlidersHorizontal, Menu, X, Bell, LogOut, type LucideIcon,
+  ScanLine, BookOpenCheck, ClipboardList, Warehouse, ShoppingCart, Store, Settings2, Building2, IndianRupee, Receipt, Cpu, PackagePlus, MinusCircle, Wallet, Users, ShieldCheck, Plug, Scale, Calculator, Library, ChevronRight, ChefHat, Menu, X, Bell, LogOut, type LucideIcon, ArrowLeftRight, Activity, Network, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { IS_DEMO } from '../config'
 import Logo, { RESTO_NAME } from './Logo'
-import { ROLES, type ModuleId } from '../data/mock'
+import type { ModuleId } from '../data/mock'
 
 export type NavItem = {
   to: string; label: string; icon: LucideIcon; module: ModuleId
@@ -24,34 +25,29 @@ export type NavGroup = { section: string; items: NavItem[] }
 export const CONTROL_NAV: NavItem[] = [
   { to: '/control', label: 'Control Overview', icon: Settings2, module: 'settings' },
   { to: '/control/restaurants', label: 'Restaurants & Branches', icon: Building2, module: 'settings' },
+  { to: '/control/branches', label: 'Branch Integrations', icon: Store, module: 'settings' },
   { to: '/control/sales', label: 'Sales', icon: IndianRupee, module: 'sales' },
   { to: '/control/expenses', label: 'Expenses', icon: Receipt, module: 'expenses' },
-  { to: '/control/ocr', label: 'OCR Status', icon: Cpu, module: 'ocr' },
+  { to: '/control/ocr', label: 'Bill Reading', icon: Cpu, module: 'ocr' },
   { to: '/control/purchases', label: 'Purchases & Vendors', icon: PackagePlus, module: 'purchase' },
   { to: '/control/deductions', label: 'Deductions', icon: MinusCircle, module: 'deductions' },
   { to: '/control/salary', label: 'Salary', icon: Wallet, module: 'salary' },
   { to: '/control/users', label: 'Users & Login', icon: Users, module: 'users' },
   { to: '/control/roles', label: 'Role Permissions', icon: ShieldCheck, module: 'users' },
+  { to: '/control/activity', label: 'Activity', icon: Activity, module: 'users' },
+  { to: '/control/flow', label: 'Data Flow', icon: Network, module: 'settings' },
   { to: '/control/integrations', label: 'Integrations & AI', icon: Plug, module: 'settings' },
 ]
 const CONTROL_GROUPS: NavGroup[] = [
-  { section: 'Setup', items: CONTROL_NAV.slice(0, 2) },
-  { section: 'Money', items: CONTROL_NAV.slice(2, 8) },
-  { section: 'Access & System', items: CONTROL_NAV.slice(8) },
+  { section: 'Setup', items: CONTROL_NAV.slice(0, 3) },
+  { section: 'Money', items: CONTROL_NAV.slice(3, 9) },
+  { section: 'Access & System', items: CONTROL_NAV.slice(9) },
 ]
 
-// Control Panel pages also live inside the Centre Kitchen Dashboard, under /admin/...
-// ('/control' itself becomes '/admin/settings').
-export const toAdminPath = (controlPath: string) =>
-  controlPath === '/control' ? '/admin/settings' : controlPath.replace(/^\/control/, '/admin')
-const inAdmin = (path: string): NavItem => {
-  const item = CONTROL_NAV.find((n) => n.to === path)!
-  return { ...item, to: toAdminPath(item.to) }
-}
 
 // Sidebar "big buttons". Each opens a page of large tiles (see pages/admin/Hub.tsx).
 export type HubItem = NavItem & { desc: string }
-export type HubId = 'accounting' | 'kitchen' | 'setup'
+export type HubId = 'accounting' | 'kitchen'
 export const HUBS: Record<HubId, { label: string; icon: LucideIcon; to: string; subtitle: string; items: HubItem[] }> = {
   accounting: {
     label: 'Accounting', icon: Calculator, to: '/admin/accounting', subtitle: 'October 2026 · pick a report to open it',
@@ -75,35 +71,15 @@ export const HUBS: Record<HubId, { label: string; icon: LucideIcon; to: string; 
       { to: '/admin/kitchen/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart, module: 'purchase', desc: 'Orders placed with vendors' },
     ],
   },
-  setup: {
-    label: 'Setup & Access', icon: SlidersHorizontal, to: '/admin/setup', subtitle: 'Branches, connected apps, bill scanning and who can log in',
-    items: [
-      { to: '/admin/setup/branches', label: 'Branches & Integrations', icon: Building2, module: 'settings', desc: 'Locations, Swiggy, Zomato, POS and AI' },
-      { ...inAdmin('/control/ocr'), desc: 'Turn bill scanning on or off per branch' },
-      { ...inAdmin('/control/users'), desc: 'Who can log in, and login rules' },
-      { ...inAdmin('/control/roles'), desc: 'What each role can see and do' },
-    ],
-  },
 }
-const hubButton = (id: HubId): NavItem => ({
-  to: HUBS[id].to, label: HUBS[id].label, icon: HUBS[id].icon, module: HUBS[id].items[0].module, big: true,
-  anyOf: HUBS[id].items.map((i) => i.module),
-})
 
-export const ADMIN_NAV: NavGroup[] = [
-  // All big buttons. Accounting, Kitchen Manager and Setup & Access open a page of tiles.
-  { section: '', items: [
-    { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard', big: true },
-    { to: '/admin/branches', label: 'Branch Dashboards', icon: Store, module: 'dashboard', big: true },
-    hubButton('accounting'), hubButton('kitchen'), hubButton('setup'),
-  ] },
-]
+// Every page in the dashboard sidebar (see AdminNav), used to pick a role's first page after sign-in.
+export const ADMIN_NAV: NavGroup[] = [{ section: '', get items() { return allSideLinks() as NavItem[] } }]
 
 // Turns a Control Panel link into the right link for whichever portal you're in.
+// (Control Panel pages now live only in the Control Panel, so links stay as they are.)
 export function usePortalPath() {
-  const { pathname } = useLocation()
-  const admin = pathname.startsWith('/admin')
-  return (controlPath: string) => (admin ? toAdminPath(controlPath) : controlPath)
+  return (controlPath: string) => controlPath
 }
 
 // Each portal has its own look so it's obvious which one you're in.
@@ -119,17 +95,30 @@ const PORTALS = {
 }
 
 export default function Layout({ portal, children }: { portal: keyof typeof PORTALS; children: ReactNode }) {
-  const { role, can } = useApp()
+  const { can, role } = useApp()
   const auth = useAuth()
-  const initials = (auth.email ?? 'AL').slice(0, 2).toUpperCase()
   const [open, setOpen] = useState(false)
+  // Desktop only: tuck the sidebar away to a slim strip of icons, for more room (e.g. Tally screens). Remembered per browser.
+  const [slim, setSlimState] = useState(() => { try { return localStorage.getItem('prisim.sidebarSlim') === '1' } catch { return false } })
+  const setSlim = (v: boolean) => { setSlimState(v); try { localStorage.setItem('prisim.sidebarSlim', v ? '1' : '0') } catch { /* ignore */ } }
   const navigate = useNavigate()
   const p = PORTALS[portal]
   const close = () => setOpen(false)
 
   return (
     <div className="flex min-h-screen">
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 transform flex-col overflow-y-auto px-3 py-4 transition lg:static lg:translate-x-0 ${p.aside} ${open ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 transform flex-col overflow-y-auto px-3 py-4 transition-all duration-200 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${slim ? 'lg:w-[76px] lg:px-2' : ''} ${p.aside} ${open ? 'translate-x-0' : '-translate-x-full'}`}>
+        {/* Slide the panel in or out (desktop). */}
+        <button onClick={() => setSlim(!slim)} aria-label={slim ? 'Show the side panel' : 'Hide the side panel'} title={slim ? 'Show the side panel' : 'Hide the side panel'}
+          className={`mb-2 hidden h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-300 ring-1 ring-white/15 hover:bg-white/10 hover:text-white lg:grid ${slim ? 'mx-auto' : 'ml-auto'}`}>
+          {slim ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+        </button>
+        {slim ? (
+          <Link to={p.home} className="mb-5 hidden justify-center border-b border-white/10 pb-4 lg:flex" title={p.name}>
+            {portal === 'admin' ? <Logo size={48} /> : <div className={`grid h-9 w-9 place-items-center rounded-lg font-bold text-white ${p.logo}`}>P</div>}
+          </Link>
+        ) : null}
+        <div className={slim ? 'lg:hidden' : ''}>
         {portal === 'admin' ? (
           // Big centred restaurant logo for the Centre Kitchen Dashboard.
           <div className="relative mb-6 border-b border-white/10 pb-5">
@@ -152,24 +141,26 @@ export default function Layout({ portal, children }: { portal: keyof typeof PORT
             <button className="text-slate-400 lg:hidden" onClick={close} aria-label="Close menu"><X size={18} /></button>
           </div>
         )}
+        </div>
 
+        {portal === 'admin' ? <AdminNav slim={slim} onPick={close} /> : (
         <nav className="flex-1">
           {p.nav.map((g) => {
             const items = g.items.filter((i) => canSee(i, can))
             if (!items.length) return null
             return (
               <div key={g.section} className="mb-4">
-                {g.section && <p className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">{g.section}</p>}
+                {g.section && <p className={`px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-400 ${slim ? 'lg:hidden' : ''}`}>{g.section}</p>}
                 <div className={items.some((i) => i.big) ? 'space-y-2.5' : 'space-y-0.5'}>
                   {items.map((i) => i.big ? (
-                    <NavLink key={i.to} to={i.to} end={i.to === p.home} onClick={close}
-                      className={({ isActive }) => `flex items-center gap-2.5 rounded-xl px-3 py-3 text-sm font-semibold transition ${isActive ? 'bg-[#d9a441] text-[#2a0f12] shadow' : 'bg-[#d9a441]/15 text-[#f6e3b8] ring-1 ring-[#d9a441]/40 hover:bg-[#d9a441]/25'}`}>
-                      <i.icon size={17} strokeWidth={2.25} /><span className="flex-1">{i.label}</span><ChevronRight size={16} />
+                    <NavLink key={i.to} to={i.to} end={i.to === p.home} onClick={close} title={i.label}
+                      className={({ isActive }) => `flex items-center gap-2.5 rounded-xl px-3 py-3 text-sm font-semibold transition ${slim ? 'lg:justify-center lg:px-0' : ''} ${isActive ? 'bg-[#d9a441] text-[#2a0f12] shadow' : 'bg-[#d9a441]/15 text-[#f6e3b8] ring-1 ring-[#d9a441]/40 hover:bg-[#d9a441]/25'}`}>
+                      <i.icon size={slim ? 20 : 17} strokeWidth={2.25} className="shrink-0" /><span className={`flex-1 ${slim ? 'lg:hidden' : ''}`}>{i.label}</span><ChevronRight size={16} className={slim ? 'lg:hidden' : ''} />
                     </NavLink>
                   ) : (
-                    <NavLink key={i.to} to={i.to} end={i.to === p.home} onClick={close}
-                      className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition ${isActive ? p.active + ' font-semibold' : 'font-medium text-slate-300 hover:bg-white/5 hover:text-white'}`}>
-                      <i.icon size={17} strokeWidth={2.25} />{i.label}
+                    <NavLink key={i.to} to={i.to} end={i.to === p.home} onClick={close} title={i.label}
+                      className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition ${slim ? 'lg:justify-center lg:px-0 lg:py-2' : ''} ${isActive ? p.active + ' font-semibold' : 'font-medium text-slate-300 hover:bg-white/5 hover:text-white'}`}>
+                      <i.icon size={slim ? 19 : 17} strokeWidth={2.25} className="shrink-0" /><span className={slim ? 'lg:hidden' : ''}>{i.label}</span>
                     </NavLink>
                   ))}
                 </div>
@@ -177,16 +168,26 @@ export default function Layout({ portal, children }: { portal: keyof typeof PORT
             )
           })}
         </nav>
+        )}
 
         <div className="mt-4 space-y-1 border-t border-white/10 pt-3">
-          <button onClick={async () => { await auth.signOut(); navigate('/') }} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white">
-            <LogOut size={16} /> Sign out
+          {/* The way back from the Control Panel. The dashboard's sidebar doesn't link to the Control Panel. */}
+          {role === 'admin' && portal === 'control' && (
+            <Link to="/admin" onClick={close} title="Centre Kitchen Dashboard"
+              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white ${slim ? 'lg:justify-center lg:px-0' : ''}`}>
+              <ArrowLeftRight size={16} className="shrink-0" /> <span className={slim ? 'lg:hidden' : ''}>Centre Kitchen Dashboard</span>
+            </Link>
+          )}
+          <button onClick={async () => { await auth.signOut(); navigate('/') }} title="Sign out"
+            className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white ${slim ? 'lg:justify-center lg:px-0' : ''}`}>
+            <LogOut size={16} className="shrink-0" /> <span className={slim ? 'lg:hidden' : ''}>Sign out</span>
           </button>
         </div>
       </aside>
       {open && <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={close} />}
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {role === 'admin' && <DashboardsOffBanner />}
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-2.5 backdrop-blur lg:px-6">
           <button className="text-slate-600 lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={20} /></button>
           <span className={`hidden rounded-md px-2 py-0.5 text-xs font-semibold sm:inline ${p.chip}`}>{p.name}</span>
@@ -199,7 +200,7 @@ export default function Layout({ portal, children }: { portal: keyof typeof PORT
             <button className="relative text-slate-500 hover:text-slate-800" aria-label="Notifications">
               <Bell size={18} /><span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-rose-500" />
             </button>
-            <div title={`Signed in as ${auth.email ? auth.email + ' · ' : ''}${ROLES.find((r) => r.id === role)?.name}`} className="grid h-8 w-8 place-items-center rounded-full bg-slate-800 text-xs font-semibold text-white">{initials}</div>
+            <AccountMenu />
           </div>
         </header>
         <main className="flex-1 p-4 lg:p-6">{children}</main>

@@ -4,7 +4,7 @@ import { Button, Field, inputCls } from './ui'
 import { BRANCHES, type BillScript } from '../data/mock'
 
 // Upload window for the OCR Bill Inbox. Two kinds:
-//  - handwritten: a photo or scan of a handwritten bill, English or Kannada (read by Tesseract OCR)
+//  - handwritten: a photo or scan of a handwritten bill, English or Kannada (read by Sarvam; 10 a day)
 //  - pdf: a printed/typed PDF from billing software (read from the text inside the PDF)
 
 export type UploadKind = 'handwritten' | 'pdf'
@@ -47,7 +47,7 @@ export default function UploadBillDialog({ kind, onClose, onUpload }: {
             <h2 id="upload-bill-title" className="text-lg font-semibold text-slate-900">{handwritten ? 'Upload handwritten / scanned bill' : 'Upload PDF bill'}</h2>
             <p className="text-sm text-slate-500">
               {handwritten
-                ? 'A photo, or a scanned PDF of one or many bills (handwritten or printed). Tesseract OCR reads it; check each line after.'
+                ? 'A photo, or a scanned PDF of one or many bills (handwritten or printed). Sarvam reads it in a few seconds; check each line after. Each page counts toward today’s limit of 10.'
                 : 'A printed or typed PDF from the vendor’s billing software. Items and totals are read exactly from the PDF.'}
             </p>
           </div>

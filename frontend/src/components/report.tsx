@@ -118,3 +118,23 @@ export function EmptyReport({ title, period, icon, text, actions, children }: {
     </div>
   )
 }
+
+/** Month and branch pickers shown at the top of each report. */
+export function ScopePicker({ months, month, setMonth, branch, setBranch, monthName, branches }: {
+  months: string[]; month: string; setMonth: (m: string) => void; branch: string; setBranch: (b: string) => void
+  monthName: (m: string) => string; branches: { id: string; name: string }[]
+}) {
+  const sel = 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700'
+  return (
+    <>
+      <select aria-label="Month" className={sel} value={month} onChange={(e) => setMonth(e.target.value)}>
+        {months.map((m) => <option key={m} value={m}>{monthName(m)}</option>)}
+        <option value="">All months</option>
+      </select>
+      <select aria-label="Branch" className={sel} value={branch} onChange={(e) => setBranch(e.target.value)}>
+        <option value="">All branches</option>
+        {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+      </select>
+    </>
+  )
+}

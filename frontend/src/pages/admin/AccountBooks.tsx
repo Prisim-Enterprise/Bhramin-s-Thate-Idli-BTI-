@@ -7,7 +7,7 @@ import { useApp } from '../../context/AppContext'
 import { useAuth } from '../../context/AuthContext'
 import { BRANCHES, ROLES, branchName } from '../../data/mock'
 import { KNOWN_LEDGERS, cashIn, closing, fmtDateTime, niceDate, useEntries, type DayEntry } from '../../data/entries'
-import { deleteManualVoucher, groupOf, openReceipt, useCustomLedgers, useManualVouchers, type CustomLedger } from '../../data/ledgerStore'
+import { deleteManualVoucher, groupOf, ledgerKey, openReceipt, useCustomLedgers, useManualVouchers, type CustomLedger } from '../../data/ledgerStore'
 import {
   GROUPS, VCH_TYPES, amt, buildVouchers, drCr, imprestLedger, ledgerTotals, particulars, voucherAmount,
   type GroupId, type VchType, type Voucher,
@@ -69,7 +69,7 @@ export default function AccountBooks() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
         {/* Tally-style menu */}
         <nav aria-label="Account books" className="h-fit overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <p className="bg-[#1f3a8a] px-4 py-2 text-sm font-semibold text-white">Account Books</p>
@@ -135,8 +135,12 @@ const Empty = ({ text }: { text: ReactNode }) => <p className="px-4 py-10 text-c
 const openingOf = (branch: string, entries: DayEntry[]) =>
   [...entries].filter((e) => e.branch === branch).sort((a, b) => a.date.localeCompare(b.date))[0]?.opening ?? 0
 
-const otherSide = (v: Voucher, ledger: string) =>
-  v.postings.length > 2 ? '(as per details)' : v.postings.find((x) => x.ledger !== ledger)?.ledger ?? ''
+/** Like Tally: the ledger on the other side of the voucher, or "(as per details)" when there are several. */
+function otherSide(v: Voucher, ledger: string): string {
+  const mine = v.postings.find((x) => x.ledger === ledger)
+  const others = v.postings.filter((x) => x.ledger !== ledger && (mine?.dr ? x.cr : x.dr))
+  return others.length === 1 ? others[0].ledger : '(as per details)'
+}
 
 function CashBook({ branch, entries, vouchers, onBranch }: { branch: string; entries: DayEntry[]; vouchers: Voucher[]; onBranch: (b: string) => void }) {
   const moves = (b: string) => vouchers.flatMap((v) => v.postings.filter((p) => p.ledger === imprestLedger(b)).map((p) => ({ v, p })))
@@ -192,7 +196,8 @@ function CashBook({ branch, entries, vouchers, onBranch }: { branch: string; ent
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 /** "2026-10-09" -> "9-Oct-26", as Tally prints dates. */
-const tallyDate = (d: string) => `${Number(d.slice(8, 10))}-${MON[Number(d.slice(5, 7)) - 1]}-${d.slice(2, 4)}`
+// "2026-08-21" -> "21-Aug-26". Anything that isn't a full date shows as a dash, so a half-typed date can't break the page.
+const tallyDate = (d?: string | null) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${Number(d.slice(8, 10))}-${MON[Number(d.slice(5, 7)) - 1]}-${d.slice(2, 4)}` : '—')
 
 function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }: {
   vouchers: Voucher[]; allVouchers: Voucher[]; custom: CustomLedger[]; branch: string; ledger: string; setLedger: (l: string) => void
@@ -215,7 +220,7 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
   // Every ledger: used in any branch, created by hand, or a common one from the Imprest Book.
   const names = useMemo(() => {
     const set = new Map<string, string>()
-    for (const n of [...ledgerTotals(allVouchers).map((l) => l.ledger), ...custom.map((c) => c.name), ...KNOWN_LEDGERS.map((k) => k.name)]) set.set(n.toLowerCase(), n)
+    for (const n of [...ledgerTotals(allVouchers).map((l) => l.ledger), ...custom.map((c) => c.name), ...KNOWN_LEDGERS.map((k) => k.name)]) if (!set.has(ledgerKey(n))) set.set(ledgerKey(n), n)
     return [...set.values()].sort((a, b) => a.localeCompare(b))
   }, [allVouchers, custom])
   const shown = names.filter((n) => n.toLowerCase().includes(q.trim().toLowerCase()))
@@ -229,16 +234,17 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
   const totDr = rows.reduce((s, r) => s + r.p.dr, 0)
   const totCr = rows.reduce((s, r) => s + r.p.cr, 0)
   const closingBal = opening + totDr - totCr
-  const periodFrom = from || rows[0]?.v.date
-  const periodTo = to || rows[rows.length - 1]?.v.date
+  // The period shown in the Credit heading. With a From date after the last voucher there are no rows, so fall back to the dates typed.
+  const periodFrom = from || rows[0]?.v.date || ''
+  const periodTo = to || rows[rows.length - 1]?.v.date || from
   const half = (n: number, side: 'dr' | 'cr') => (side === 'dr' ? (n > 0 ? amt(n) : '') : n < 0 ? amt(-n) : '')
 
   const pickLedger = (n: string) => { setLedger(n); setNotice(null); setOpen(null) }
 
   return (
-    <div className="grid lg:grid-cols-[240px_1fr]">
+    <div className="grid grid-cols-1 2xl:grid-cols-[230px_minmax(0,1fr)]">
       {/* Ledger list with search */}
-      <div className="border-b border-slate-100 p-3 lg:border-b-0 lg:border-r">
+      <div className="border-b border-slate-100 p-3 2xl:border-b-0 2xl:border-r">
         <div className="relative">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input className={inputCls + ' pl-9'} placeholder="Search ledger" aria-label="Search ledger" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -249,7 +255,7 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
             You're signed in as <b>{ROLES.find((x) => x.id === role)?.name}</b>, which can only view. Ask an admin to give you the Accountant or Admin role, then sign in again.
           </p>
         )}
-        <ul className="mt-2 max-h-72 overflow-y-auto lg:max-h-[560px]">
+        <ul className="mt-2 grid max-h-56 grid-cols-1 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3 2xl:block 2xl:max-h-[560px]">
           {shown.map((n) => (
             <li key={n}>
               <button onClick={() => pickLedger(n)}
@@ -295,7 +301,7 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
             )}
 
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[680px] text-sm">
                 <thead>
                   <tr className="border-b border-slate-300 text-left text-xs font-semibold text-slate-600">
                     <th className="px-4 py-2">Date</th>
@@ -305,7 +311,7 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
                     <th className="px-4 py-2 text-right">Debit</th>
                     <th className="px-4 py-2 text-right">
                       Credit
-                      {periodFrom && <span className="block font-normal text-slate-400">{tallyDate(periodFrom)} to {tallyDate(periodTo!)}</span>}
+                      {(periodFrom || periodTo) && <span className="block whitespace-nowrap font-normal text-slate-400">{tallyDate(periodFrom || periodTo)} to {tallyDate(periodTo || periodFrom)}</span>}
                     </th>
                   </tr>
                 </thead>

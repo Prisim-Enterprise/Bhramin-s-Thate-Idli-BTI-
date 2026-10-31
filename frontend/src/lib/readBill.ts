@@ -25,6 +25,7 @@ export const CHARGE = /(\br\.?\s?m\.?\s?c\b\.?|market\s*cess|\bhamali|\bcool(ie|
 const CHARGE_LEDGER = 'Freight & Hamali Charges'
 
 const RULES: { ledger: string; re: RegExp }[] = [
+  { ledger: 'Conveyance', re: /\bconveyance\b/i },
   { ledger: CHARGE_LEDGER, re: CHARGE },
   // Product codes from the dairy supplier app: CRDKG (curd), NSM/TMS 1000ML (milk), PNR1KG (paneer).
   { ledger: 'Milk Purchased', re: /\b(milk|curd|dahi|paneer|butter ?milk|cream|khova|khoa|nandini|toned|crd\w*|nsm\d*\w*|tms\d*\w*|pnr\d*\w*)\b/i },
@@ -83,7 +84,7 @@ const toNum = (s: string) => Number(s.replace(/₹|rs\.?|inr|[(),]/gi, ''))
 const r2 = (n: number) => Math.round(n * 100) / 100
 
 /** dd/mm/yyyy, dd-mm-yy, 12-Oct-26, 12 Oct 2026 -> yyyy-mm-dd */
-function findDate(text: string): string | undefined {
+export function findDate(text: string): string | undefined {
   const y = (s: string) => (s.length === 2 ? '20' + s : s)
   let m = text.match(/\b(\d{1,2})\s*[-/.\s]\s*([A-Za-z]{3,4})[a-z]*\s*[-/.,\s]\s*(\d{2,4})\b/)
   if (m && MONTHS[m[2].toLowerCase()]) return `${y(m[3])}-${MONTHS[m[2].toLowerCase()]}-${m[1].padStart(2, '0')}`
@@ -193,7 +194,9 @@ export function parseBillLines(raw: string[]): BillRead {
 
   const dateLine = lines.find((l) => /date|dt\.?/i.test(l) && findDate(l))
   const date = findDate(dateLine ?? text)
+  // "Invoice No: AH/26-27/215", "Bill No.: CR01657", or a plain "No. 2710" printed near the top of a bill book.
   const inv = text.match(/(?:invoice|inv|bill)\s*(?:no|number|#)\.?\s*[:\-]?\s*([A-Za-z0-9][A-Za-z0-9/\-]*)/i)
+    ?? lines.slice(0, 12).join('\n').match(/\bNo\s*[.:]?\s*(\d[\d\s]{1,6}\d)\b/)
 
   const items: ReadLine[] = []
   const skipped: string[] = []
@@ -220,7 +223,7 @@ export function parseBillLines(raw: string[]): BillRead {
     textFound: true,
     vendor,
     date,
-    invoiceNo: inv?.[1],
+    invoiceNo: inv?.[1]?.replace(/\s+/g, ''),
     lines: items,
     cgst: taxOf(lines, 'cgst'),
     sgst: taxOf(lines, 'sgst'),
@@ -232,16 +235,16 @@ export function parseBillLines(raw: string[]): BillRead {
 
 /* ---------- Choosing how to read a bill ---------- */
 
-export type ReadMethod = 'pdf-text' | 'tesseract' | 'none'
+export type ReadMethod = 'pdf-text' | 'sarvam' | 'none'
 export type ReadOutcome = BillRead & { method: ReadMethod; confidence: number; note: string; originals?: (string | null)[]; unsure?: boolean[]; rawLines?: string[] }
-export type BillScriptId = 'en-hand' | 'kn-hand' | 'en-typed'
+export type BillScriptId = 'en-hand' | 'kn-hand' | 'en-typed' | 'manual'
 
 const empty: BillRead = { textFound: false, lines: [], skipped: [] }
 
 /**
  * Read a bill by how it was uploaded:
  *  - "Upload PDF bill" (en-typed): the text inside the PDF only (exact, free). No OCR.
- *  - "Upload handwritten bill" (en-hand / kn-hand): Tesseract OCR in the browser, English or Kannada+English.
+ *  - "Upload handwritten / scanned bill" (en-hand / kn-hand): Sarvam on the server, English or Kannada (10 a day).
  */
 export async function readBillFile(file: Blob & { name?: string }, script: BillScriptId, onStep?: (s: string) => void): Promise<ReadOutcome> {
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name ?? '')
@@ -261,32 +264,18 @@ export async function readBillFile(file: Blob & { name?: string }, script: BillS
     }
   }
 
-  // Handwritten: Tesseract OCR.
+  // Handwritten or scanned: read by Sarvam on the server (counts toward the daily limit).
   if (!isPdf && !isImage) return { ...empty, method: 'none', confidence: 0, note: 'Upload a photo or a scanned PDF of the bill.' }
   try {
-    const { ocrImages, pdfPagesToImages } = await import('./ocr')
-    onStep?.('Reading with Tesseract OCR… (first time downloads the language files)')
-    const images = isPdf ? await pdfPagesToImages(file) : [file]
-    const kannada = script === 'kn-hand'
-    const { lines, confidence } = await ocrImages(images, kannada ? 'kan+eng' : 'eng', (p) => onStep?.(`Reading with Tesseract OCR… ${p}%`))
-    const r = parseBillLines(lines)
-    // Kannada item names: show the English name, keep the Kannada underneath, and pick the ledger from the English.
-    const isKn = (s: string) => /[ಀ-೿]/.test(s)
-    const originals = r.lines.map((l) => (isKn(l.item) ? l.item : null))
-    if (kannada) {
-      r.lines = r.lines.map((l) => {
-        if (!isKn(l.item)) return l
-        const en = kannadaToEnglish(l.item)
-        return en ? { ...l, item: en, ledger: ledgerFor(en, r.vendor) } : l
-      })
-    }
-    return {
-      ...r, method: 'tesseract', confidence, rawLines: lines,
-      originals: kannada ? originals : undefined,
-      note: `Read by Tesseract OCR (${kannada ? 'Kannada' : 'English'}), ${confidence}% sure. Handwriting is often misread, so check every line.`,
-    }
+    const { readBillOnline } = await import('./api')
+    const { shrinkImage, pdfPageCount } = await import('./ocr')
+    onStep?.('Reading the bill with Sarvam… (usually 5–15 seconds)')
+    const send = isPdf ? file : await shrinkImage(file)
+    const pages = isPdf ? await pdfPageCount(file) : 1
+    const { bill } = await readBillOnline(send, file.name ?? 'bill.jpg', pages)
+    return fromSarvam(bill)
   } catch (e) {
-    return { ...empty, method: 'none', confidence: 0, note: `Tesseract could not read this bill (${e instanceof Error ? e.message : String(e)}). Type the items in below.` }
+    return { ...empty, method: 'none', confidence: 0, note: `Could not read this bill: ${e instanceof Error ? e.message : String(e)} Type the items in below.` }
   }
 }
 
@@ -298,5 +287,64 @@ export async function readBill(file: File): Promise<BillRead> {
     return parseBillLines(await pdfLines(file))
   } catch {
     return empty
+  }
+}
+
+/* ---------- Sarvam result -> bill lines ---------- */
+
+const GST_RATES = [0, 5, 12, 18, 28]
+const r2s = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * Turn what Sarvam read into bill lines, and check it:
+ *  - qty x rate is checked against the line amount; a GST-inclusive amount sets the line's GST %
+ *  - if they disagree, qty x rate is used and the line is marked "check this"
+ *  - Kannada item names get their English name, with the Kannada kept underneath
+ *  - a date far from today is left for the person to enter
+ */
+export function fromSarvam(b: import('./api').SarvamBill): ReadOutcome {
+  const vendor = b.vendor?.trim() || undefined
+  const lines: ReadLine[] = []
+  const originals: (string | null)[] = []
+  const unsure: boolean[] = []
+  for (const it of b.items ?? []) {
+    let name = (it.item ?? '').trim()
+    const qty = it.qty ?? null, rate = it.rate ?? null, amount = it.amount ?? null
+    if (!name && !amount) continue
+    let original: string | null = null
+    if (/[\u0C80-\u0CFF]/.test(name)) { original = name; name = kannadaToEnglish(name) ?? name }
+    const unit = (it.unit ?? '').toLowerCase().replace(/\.$/, '').replace(/^kgs$/, 'kg') || (qty && rate ? 'kg' : 'nos')
+    let line: ReadLine
+    let doubt = false
+    if (qty && rate) {
+      const base = qty * rate
+      const g = amount ? GST_RATES.find((x) => Math.abs(amount - base * (1 + x / 100)) <= Math.max(1, amount * 0.004)) : 0
+      if (amount && g === undefined) doubt = true // amount doesn't match qty x rate: use qty x rate, ask to check
+      line = { item: name || 'Item', qty, unit, rate, gst: g ?? 0, ledger: '' }
+    } else if (qty && amount) {
+      line = { item: name || 'Item', qty, unit, rate: r2s(amount / qty), gst: 0, ledger: '' }
+    } else {
+      line = { item: name || 'Charges', qty: 1, unit: 'nos', rate: amount ?? 0, gst: 0, ledger: '' }
+      doubt = !amount
+    }
+    line.ledger = ledgerFor(line.item, vendor)
+    lines.push(line)
+    originals.push(original)
+    unsure.push(doubt)
+  }
+  // Dates: accept "21/8/2026", "Aug 20, 2026", "21-Aug-26"; anything more than a year away is likely misread.
+  let date = b.date ? findDate(b.date) ?? findDate(b.date.replace(/^([A-Za-z]{3})\w*\s+(\d{1,2}),?\s+(\d{4})$/, '$2 $1 $3')) : undefined
+  const dateOff = date && Math.abs(Date.parse(date) - Date.now()) > 366 * 86_400_000
+  if (dateOff) date = undefined
+  const doubts = unsure.filter(Boolean).length
+  return {
+    textFound: true, method: 'sarvam', confidence: doubts ? 80 : 95,
+    vendor, date, invoiceNo: b.bill_no?.trim() || undefined,
+    lines, originals, unsure,
+    cgst: b.cgst || undefined, sgst: b.sgst || undefined, total: b.total ?? undefined,
+    skipped: [],
+    note: 'Read by Sarvam. Check every line before posting.'
+      + (doubts ? ` ${doubts} line${doubts === 1 ? '' : 's'} marked “check” (amount and qty × rate didn't agree).` : '')
+      + (dateOff ? ` The date on the bill (“${b.date}”) looks wrong, so please enter it.` : ''),
   }
 }

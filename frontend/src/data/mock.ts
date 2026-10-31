@@ -96,9 +96,10 @@ export type OcrStatus = 'queued' | 'processing' | 'extracted' | 'verified' | 'fa
 export type BillLine = { item: string; qty: number; unit: string; rate: number; gst: number; original?: string; ledger?: string; unsure?: boolean }
 
 // What kind of writing the bill has. OCR uses a different reader for each.
-export type BillScript = 'en-hand' | 'kn-hand' | 'en-typed'
+export type BillScript = 'en-hand' | 'kn-hand' | 'en-typed' | 'manual'
 export const BILL_SCRIPTS: Record<BillScript, { label: string; short: string; hint: string }> = {
   'en-typed': { label: 'English – typed / printed', short: 'English typed', hint: 'Computer or machine-printed bills. Fastest and most accurate.' },
+  manual: { label: 'Entered by hand', short: 'Manual entry', hint: 'Typed in from the paper bill; nothing was read automatically.' },
   'en-hand': { label: 'English – handwritten', short: 'English handwritten', hint: 'Bills written by hand in English. Check numbers carefully when reviewing.' },
   'kn-hand': { label: 'Kannada – handwritten', short: 'Kannada handwritten', hint: 'Bills written by hand in Kannada. Item names are translated to English; the Kannada stays visible for checking.' },
 }

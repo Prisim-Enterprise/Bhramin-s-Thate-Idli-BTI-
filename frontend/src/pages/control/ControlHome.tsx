@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom'
 import { CONTROL_NAV, usePortalPath } from '../../components/Layout'
 import { PageHeader } from '../../components/ui'
+import { DashboardPowerCard } from '../../components/DashboardPower'
 import { useApp } from '../../context/AppContext'
 import { BRANCHES, EMPLOYEES, EXPENSES, PURCHASE_ORDERS, RESTAURANTS, computePay, inr } from '../../data/mock'
 
 export default function ControlHome() {
-  const { ocrEnabled, deductions, can } = useApp()
+  const { deductions, can } = useApp()
   const path = usePortalPath()
   const payroll = EMPLOYEES.reduce((s, e) => s + computePay(e, deductions).net, 0)
 
@@ -13,18 +14,21 @@ export default function ControlHome() {
     '/control/restaurants': `${RESTAURANTS[0].name} · ${BRANCHES.length} locations`,
     '/control/sales': inr(BRANCHES.reduce((s, b) => s + b.sales, 0)) + ' this month',
     '/control/expenses': `${EXPENSES.filter((e) => e.status === 'pending').length} awaiting approval`,
-    '/control/ocr': `${Object.values(ocrEnabled).filter(Boolean).length} of ${BRANCHES.length} branches active`,
+    '/control/ocr': 'Sarvam for handwritten · 10 a day',
     '/control/purchases': `${PURCHASE_ORDERS.filter((p) => p.status !== 'billed').length} open purchase orders`,
     '/control/deductions': `PF ${deductions.pfPct}% · ESI ${deductions.esiPct}% · PT ₹${deductions.ptAmount}`,
     '/control/salary': inr(payroll) + ' net payroll',
-    '/control/users': `${EMPLOYEES.filter((e) => e.active).length} active logins`,
-    '/control/roles': '6 roles configured',
+    '/control/users': 'Add logins, set role and branch, turn off, reset password',
+    '/control/roles': '6 roles · saved for everyone, enforced by the server',
+    '/control/activity': 'Who saved, deleted, uploaded or changed what, and when',
+    '/control/flow': 'Picture of how data flows from each login to the reports',
     '/control/integrations': 'POS, aggregators, AI models, network',
   }
 
   return (
     <>
       <PageHeader title="Prisim Control Panel" subtitle="Configure every restaurant, branch, money flow and user from one place" />
+      <DashboardPowerCard />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {CONTROL_NAV.filter((n) => n.to !== '/control' && can(n.module)).map((n) => {
           const Icon = n.icon

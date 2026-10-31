@@ -1,32 +1,79 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useRef, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { FileUp, Loader2, PencilLine, Trash2 } from 'lucide-react'
+import { FileUp, Loader2, PencilLine, Trash2, X } from 'lucide-react'
 import { Badge, Card, Table } from './ui'
 import { ReportHeader, money } from './report'
 import { branchName, inr } from '../data/mock'
 import {
-  PAYOUT_TYPES, billTotal, cashIn, closing, deleteEntry, fmtDateTime, inMonth, niceDate, paidOut, useEntries, viaApps, type PayoutType,
+  PAYOUT_TYPES, billTotal, cashIn, closing, deleteEntry, findDuplicate, fmtDateTime, getEntry, inMonth, niceDate, paidOut, saveEntry, useEntries, viaApps,
+  type DayEntry, type PayoutType,
 } from '../data/entries'
+import { useAuth } from '../context/AuthContext'
 import { readImprestPdf } from '../lib/readImprestPdf'
 import { debitLines, groupOf, reportOf, useCustomLedgers, useManualVouchers } from '../data/ledgerStore'
 import { imprestLedger } from '../data/books'
 
-/** "Enter manually" and "Upload PDF" buttons. Both open the day entry screen. */
+type Upload = {
+  file: string
+  outcome: 'saved' | 'check' | 'duplicate' | 'failed'
+  text: string
+  entry?: DayEntry
+  savedId?: string
+}
+
+/** Read one Imprest Book PDF; save it straight away when it balances to the printed closing balance. */
+export async function importImprest(file: File, by: string): Promise<Upload> {
+  const r = await readImprestPdf(file)
+  if (!r.ok) return { file: file.name, outcome: 'failed', text: r.reason }
+  const e = r.entry
+  const what = `${branchName(e.branch)} · ${niceDate(e.date)}`
+  const dup = findDuplicate(e.branch, e.date)
+  if (dup) return { file: file.name, outcome: 'duplicate', text: `${what} is already entered. Open it to compare, or Replace it with this PDF.`, entry: e, savedId: dup.id }
+  if (r.balanced === false) {
+    return { file: file.name, outcome: 'check', entry: e,
+      text: `${what}: our total comes to ${inr(closing(e))} but the PDF's closing balance is ${inr(r.printedClosing ?? 0)}. Check the figures before saving.` }
+  }
+  if (r.skipped.length) return { file: file.name, outcome: 'check', entry: e, text: `${what}: ${r.skipped.length} line(s) could not be read. Check before saving.` }
+  const saved = saveEntry(e, by)
+  const paid = paidOut(e)
+  return {
+    file: file.name, outcome: 'saved', savedId: saved.id,
+    text: `${what}: sales ${inr(e.sales)}, paid out ${inr(paid)}${r.balanced ? ' · matches the closing balance ✓' : ''}`,
+  }
+}
+
+const OUTCOME: Record<Upload['outcome'], [string, 'green' | 'amber' | 'red' | 'slate']> = {
+  saved: ['Saved', 'green'], check: ['Needs a check', 'amber'], duplicate: ['Already entered', 'slate'], failed: ['Not read', 'red'],
+}
+
+// The last upload's results live outside the buttons: saving the first day switches a report from its
+// empty layout to its full one, which redraws the buttons, and the results must survive that.
+let upload: { busy: string | null; results: Upload[] } = { busy: null, results: [] }
+const uploadListeners = new Set<() => void>()
+const setUpload = (p: Partial<typeof upload>) => { upload = { ...upload, ...p }; uploadListeners.forEach((l) => l()) }
+const useUpload = () => useSyncExternalStore((l) => { uploadListeners.add(l); return () => { uploadListeners.delete(l) } }, () => upload)
+
+/** "Enter manually" and "Upload PDF" buttons. PDFs that balance are saved at once; the rest open for checking. */
 export function AddEntryButtons({ disabled }: { disabled?: boolean }) {
   const navigate = useNavigate()
+  const auth = useAuth()
   const input = useRef<HTMLInputElement>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { busy, results } = useUpload()
+  const setBusy = (b: string | null) => setUpload({ busy: b })
+  const setResults = (r: Upload[]) => setUpload({ results: r })
 
-  const onFile = async (file?: File) => {
-    if (!file) return
-    setBusy(true)
-    setError(null)
-    const r = await readImprestPdf(file)
-    setBusy(false)
+  const onFiles = async (files: File[]) => {
+    if (!files.length) return
+    const out: Upload[] = []
+    for (const [i, f] of files.entries()) {
+      setBusy(files.length > 1 ? `Reading ${i + 1} of ${files.length}…` : 'Reading PDF…')
+      out.push(await importImprest(f, auth.email ?? 'Demo user'))
+    }
+    setBusy(null)
     if (input.current) input.current.value = ''
-    if (!r.ok) return setError(r.reason)
-    navigate('/admin/accounting/entry', { state: { entry: r.entry, skipped: r.skipped } })
+    // One PDF that needs checking: open it on the entry screen, as before.
+    if (out.length === 1 && out[0].outcome === 'check') return navigate('/admin/accounting/entry', { state: { entry: out[0].entry } })
+    setResults(out)
   }
 
   return (
@@ -36,13 +83,51 @@ export function AddEntryButtons({ disabled }: { disabled?: boolean }) {
           className="inline-flex items-center gap-2 rounded-xl border-2 border-[#7a2228] bg-white px-4 py-2.5 font-semibold text-[#7a2228] hover:bg-[#fbf3e4] disabled:opacity-50">
           <PencilLine size={18} /> Enter manually
         </button>
-        <button disabled={disabled || busy} onClick={() => input.current?.click()}
+        <button disabled={disabled || !!busy} onClick={() => input.current?.click()} title="Imprest Book PDFs from Tally. You can pick several at once."
           className="inline-flex items-center gap-2 rounded-xl bg-[#7a2228] px-4 py-2.5 font-semibold text-white hover:bg-[#5a1a1f] disabled:opacity-50">
-          {busy ? <Loader2 size={18} className="animate-spin" /> : <FileUp size={18} />} {busy ? 'Reading PDF…' : 'Upload PDF'}
+          {busy ? <Loader2 size={18} className="animate-spin" /> : <FileUp size={18} />} {busy ?? 'Upload PDF'}
         </button>
-        <input ref={input} type="file" accept="application/pdf,.pdf" hidden onChange={(ev) => onFile(ev.target.files?.[0])} />
+        <input ref={input} type="file" accept="application/pdf,.pdf" multiple hidden aria-label="Imprest Book PDFs"
+          onChange={(ev) => void onFiles([...(ev.target.files ?? [])])} />
       </div>
-      {error && <p className="max-w-md rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+      {results.length > 0 && (
+        <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white p-3 text-left text-sm shadow-sm" role="status">
+          <div className="mb-2 flex items-center justify-between">
+            <b>Imprest Book upload</b>
+            <button className="text-slate-400 hover:text-slate-700" aria-label="Close" onClick={() => setResults([])}><X size={16} /></button>
+          </div>
+          <ul className="space-y-2">
+            {results.map((r, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <Badge tone={OUTCOME[r.outcome][1]}>{OUTCOME[r.outcome][0]}</Badge>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-slate-800">{r.text}</span>
+                  <span className="block truncate text-xs text-slate-400">{r.file}</span>
+                </span>
+                {r.outcome === 'check' && r.entry && (
+                  <button className="shrink-0 font-medium text-[#7a2228] hover:underline" onClick={() => navigate('/admin/accounting/entry', { state: { entry: r.entry } })}>Check</button>
+                )}
+                {r.outcome === 'duplicate' && r.entry && r.savedId && (
+                  <button className="shrink-0 font-medium text-[#7a2228] hover:underline" onClick={() => {
+                    const old = getEntry(r.savedId!)
+                    if (!confirm(`Replace the saved ${branchName(r.entry!.branch)} · ${niceDate(r.entry!.date)} with this PDF?`)) return
+                    saveEntry({ ...r.entry!, id: r.savedId!, addedAt: old?.addedAt, addedBy: old?.addedBy }, auth.email ?? 'Demo user')
+                    setResults(results.map((x) => (x === r ? { ...x, outcome: 'saved', text: `${branchName(r.entry!.branch)} · ${niceDate(r.entry!.date)} replaced with this PDF` } : x)))
+                  }}>Replace</button>
+                )}
+                {r.savedId && r.outcome !== 'check' && (
+                  <Link className="shrink-0 font-medium text-[#7a2228] hover:underline" to={`/admin/accounting/entry/${r.savedId}`}>Open</Link>
+                )}
+              </li>
+            ))}
+          </ul>
+          {results.some((r) => r.outcome === 'saved') && (
+            <p className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
+              Saved days now show in the Sales, Expenses, Purchases, Food Cost, Deductions and Profit &amp; Loss reports, and in Account Books.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -90,8 +175,8 @@ export function EntriesList({ canEdit, canDelete }: { canEdit: boolean; canDelet
 }
 
 /** Sales lines from day entries, for the Sales Report. */
-export function EntrySales({ month }: { month?: string }) {
-  const list = inMonth(useEntries(), month)
+export function EntrySales({ month, branch }: { month?: string; branch?: string }) {
+  const list = inMonth(useEntries(), month).filter((e) => !branch || e.branch === branch)
   if (!list.length) return null
   const sum = (f: (e: (typeof list)[number]) => number) => list.reduce((s, e) => s + f(e), 0)
   return (

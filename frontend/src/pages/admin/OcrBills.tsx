@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { AlertTriangle, ArrowRight, BookText, CheckCircle2, FileImage, FileText, History, PenLine, RotateCw, Paperclip, RefreshCw, RotateCcw, ScanLine, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowRight, BookText, CheckCircle2, FileImage, FileText, History, Keyboard, PenLine, RotateCw, Paperclip, RefreshCw, RotateCcw, ScanLine, Trash2 } from 'lucide-react'
 import { Badge, Button, Card, EmptyState, PageHeader, Tabs, inputCls } from '../../components/ui'
 import { useApp } from '../../context/AppContext'
 import { useAuth } from '../../context/AuthContext'
 import { KNOWN_LEDGERS, fmtDateTime } from '../../data/entries'
-import { BILL_SCRIPTS, ROLES, branchName, inr, type Bill, type BillLine, type BillScript } from '../../data/mock'
+import { BILL_SCRIPTS, BRANCHES, ROLES, branchName, inr, type Bill, type BillLine, type BillScript } from '../../data/mock'
 import { keepFile, openReceipt, useCustomLedgers, useManualVouchers } from '../../data/ledgerStore'
-import { dataUrlToBlob, fileBlob } from '../../lib/api'
+import { API_ON, dataUrlToBlob, fileBlob, readUsage, type Usage } from '../../lib/api'
 import { billPostings, billSums, deleteBill, getBills, lineBase, lineGst, nextBillId, postBill, saveBill, unpostBill, useBills } from '../../data/billStore'
 import { ledgerFor, parseBillLines, readBillFile, type ReadOutcome } from '../../lib/readBill'
 import { knownVendors, lastItemsOf, matchVendor, pastItems } from '../../data/vendorMemory'
@@ -15,6 +15,11 @@ import { pdfPageLines } from '../../lib/readImprestPdf'
 import UploadBillDialog, { type UploadKind } from '../../components/UploadBillDialog'
 
 const STEPS = ['Bill uploaded', 'Read', 'Review', 'Posted to ledger']
+const MANUAL_STEPS = ['Bill entered', 'Review', 'Posted to ledger']
+/** Handwritten bills that can be uploaded per day (whole company). After that, bills are entered by hand. */
+export const HANDWRITTEN_PER_DAY = 10
+const localDay = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('en-CA') : '')
+const isHandwritten = (b: Bill) => b.script === 'en-hand' || b.script === 'kn-hand'
 const MAX_SAVED_FILE = 1024 * 1024 // without the cloud, files above 1 MB are not kept
 const EXTRA_LEDGERS = ['Gas Expenses', 'Cleaning Expenses', 'Repairs & Maintenance', 'Fruits Purchased']
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -82,6 +87,12 @@ export default function OcrBills() {
   // A bill counts as posted only while its voucher is still in Account Books.
   const isPosted = (b: Bill) => b.status === 'verified' && !!b.voucherId && manual.some((m) => m.id === b.voucherId)
   const canEdit = can('ocr', 'edit')
+  const today = new Date().toLocaleDateString('en-CA')
+  const handwrittenToday = bills.filter((b) => isHandwritten(b) && localDay(b.uploadedAt) === today).length
+  const [usage, setUsage] = useState<Usage | null>(null)
+  const refreshUsage = () => { if (API_ON) readUsage().then(setUsage).catch(() => {}) }
+  useEffect(refreshUsage, [])
+  const handwrittenLeft = usage ? Math.max(0, usage.limit - usage.used) : Math.max(0, HANDWRITTEN_PER_DAY - handwrittenToday)
   const guard = (ok: boolean, action: () => void) => () => (ok ? action() : setBlocked(true))
 
   const vendorNames = useMemo(() => knownVendors(bills, custom), [bills, custom])
@@ -106,18 +117,17 @@ export default function OcrBills() {
    * bill fill in that vendor's usual items (rates, units, ledgers) so only the quantities need typing.
    */
   const withMemory = (b: Bill, r: ReadOutcome): Bill => {
-    if (r.method !== 'tesseract') return b
+    if (r.method !== 'sarvam') return b
     const all = latestBills()
     const vendors = knownVendors(all.filter((x) => x.id !== b.id), custom)
-    const vendor = matchVendor([...(r.rawLines ?? []).slice(0, 15), r.vendor ?? ''], vendors)
-    if (!vendor) return { ...b, readNote: (b.readNote ?? '') + ' New vendor: type the vendor name once, and next time their items fill in automatically.' }
-    const handwritten = b.script !== 'en-typed'
+    const vendor = matchVendor([r.vendor ?? ''], vendors)
+    if (!vendor) return b
     const usual = lastItemsOf(vendor, all, b.id)
-    const useUsual = usual.length && (handwritten || !b.lines.length)
+    const useUsual = usual.length > 0 && !b.lines.length
     return {
       ...b, vendor,
       lines: useUsual ? usual : b.lines,
-      readNote: `Vendor recognised: ${vendor}.` + (useUsual ? ` Filled ${usual.length} item${usual.length === 1 ? '' : 's'} from their last bill with last time's rates — type the quantities (and change any rate that moved).` : ' ' + (b.readNote ?? '')),
+      readNote: (b.readNote ?? '') + ` Vendor matched to “${vendor}”.` + (useUsual ? ` No items could be read, so ${usual.length} item${usual.length === 1 ? '' : 's'} were filled from their last bill — type the quantities.` : ''),
       confidence: Math.max(b.confidence, 60),
     }
   }
@@ -153,6 +163,7 @@ export default function OcrBills() {
     }
     setSteps((m) => { const n = { ...m }; delete n[id]; return n })
     save(withMemory(fromRead(base, r, base.date), r))
+    refreshUsage()
   }
 
   const onUpload = async ({ file, script, branch, split }: { file: File; script: BillScript; branch: string; split: boolean }) => {
@@ -160,6 +171,10 @@ export default function OcrBills() {
     setTab('all')
     setMessage(null)
     const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+    const handwritten = script === 'en-hand' || script === 'kn-hand'
+    const limitMsg = (n: number) => `Only ${handwrittenLeft} handwritten upload${handwrittenLeft === 1 ? '' : 's'} left today (limit ${HANDWRITTEN_PER_DAY} a day)` +
+      (n > 1 ? `, but this PDF has ${n} bills` : '') + '. Use “Enter bill manually” for the rest.'
+    if (handwritten && handwrittenLeft === 0) return setMessage({ tone: 'error', text: limitMsg(1) })
     if (!split || !isPdf) {
       const b = await addBill(file, script, branch)
       setSelId(b.id)
@@ -177,6 +192,7 @@ export default function OcrBills() {
         setSelId(b.id)
         return readInto(b, file)
       }
+      if (handwritten && images.length > handwrittenLeft) return setMessage({ tone: 'error', text: limitMsg(images.length) })
       const stem = file.name.replace(/\.[^.]+$/, '')
       const pages: { bill: Bill; file: File }[] = []
       for (let i = 0; i < images.length; i++) {
@@ -192,13 +208,35 @@ export default function OcrBills() {
     }
   }
 
+  /** A blank bill to type in from a paper bill (no reading, doesn't count toward the daily limit). */
+  const newManualBill = () => {
+    const id = nextBillId()
+    const b: Bill = {
+      id, vendor: '', branch: 'CK', uploadedBy: by, uploadedAt: new Date().toISOString(), date: new Date().toISOString().slice(0, 10),
+      status: 'extracted', confidence: 0, type: 'credit', script: 'manual',
+      lines: [{ item: '', qty: 1, unit: 'kg', rate: 0, gst: 0, ledger: '' }],
+      readNote: 'Typed in by hand. Pick the vendor first: if they billed before, their usual items and rates fill in.',
+    }
+    save(b)
+    setSelId(id)
+    setTab('all')
+    setMessage(null)
+  }
+
+  /** Attach a photo/PDF of the paper bill to a bill entered by hand (kept as proof; not read). */
+  const attachFile = async (b: Bill, file?: File) => {
+    if (!file) return
+    const kept = await keepFile(file, MAX_SAVED_FILE).catch(() => ({ name: file.name, type: file.type, size: file.size }))
+    saveBill({ ...b, file: kept })
+  }
+
   /** The stored file of a bill, from R2 or from this browser. */
   const fileOf = async (b: Bill): Promise<Blob & { name: string }> => {
     const blob = b.file!.key ? await fileBlob(b.file!.key) : await dataUrlToBlob(b.file!.dataUrl!)
     return Object.assign(new Blob([blob], { type: b.file!.type || blob.type }), { name: b.file!.name })
   }
 
-  /** Read an existing bill again the same way it was uploaded (PDF text, or Tesseract for handwriting). */
+  /** Read an existing bill again the same way it was uploaded (PDF text, or Sarvam for handwriting). */
   const reread = async (b: Bill) => {
     if (!b.file) return
     setMessage(null)
@@ -216,11 +254,16 @@ export default function OcrBills() {
   const header = (
     <PageHeader
       title="OCR Bill Inbox"
-      subtitle="Handwritten bills (English or Kannada) are read by Tesseract OCR; printed PDFs are read from their text. Check the items, then post to Account Books"
+      subtitle="Handwritten and scanned bills (English or Kannada) are read by Sarvam, 10 a day; printed PDFs are read from their text; anything else is entered by hand. Check, then post to Account Books"
       actions={
         <>
-          <Button variant="secondary" icon={PenLine} onClick={guard(can('ocr', 'create'), () => setUploading('handwritten'))}>Upload handwritten / scanned bill</Button>
+          <Button variant="secondary" icon={PenLine} disabled={handwrittenLeft === 0}
+            title={handwrittenLeft === 0 ? `Today's ${HANDWRITTEN_PER_DAY} handwritten uploads are used. Use “Enter bill manually”.` : undefined}
+            onClick={guard(can('ocr', 'create'), () => setUploading('handwritten'))}>
+            Upload handwritten / scanned bill <span className="ml-1 rounded bg-slate-100 px-1.5 text-xs font-semibold text-slate-600">{handwrittenLeft} left today</span>
+          </Button>
           <Button icon={FileText} onClick={guard(can('ocr', 'create'), () => setUploading('pdf'))}>Upload PDF bill</Button>
+          <Button variant="secondary" icon={Keyboard} onClick={guard(can('ocr', 'create'), () => newManualBill())}>Enter bill manually</Button>
           {uploading && <UploadBillDialog kind={uploading} onClose={() => setUploading(null)} onUpload={onUpload} />}
         </>
       }
@@ -252,7 +295,8 @@ export default function OcrBills() {
   const updateLine = (i: number, patch: Partial<BillLine>) => update({ lines: sel.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) })
   const sums = billSums(sel)
   const postings = billPostings(sel)
-  const step = sel.status === 'processing' ? 1 : posted ? 3 : 2
+  const flow = sel.script === 'manual' ? MANUAL_STEPS : STEPS
+  const step = sel.script === 'manual' ? (posted ? 2 : 1) : sel.status === 'processing' ? 1 : posted ? 3 : 2
   const taxInput = (k: 'cgst' | 'sgst' | 'igst', v: number) => (
     <input type="number" step="0.01" aria-label={k.toUpperCase()} className={inputCls + ' !w-28 !py-1 text-right'} value={v} disabled={locked}
       onChange={(e) => update({ [k]: e.target.value === '' ? undefined : +e.target.value })} />
@@ -279,7 +323,7 @@ export default function OcrBills() {
         ]}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <Card pad={false}>
           <ul className="max-h-[680px] divide-y divide-slate-100 overflow-y-auto">
             {filtered.map((b) => (
@@ -304,18 +348,18 @@ export default function OcrBills() {
         <div className="min-w-0 space-y-4">
           <Card>
             <ol className="flex flex-wrap items-center gap-2 text-xs">
-              {STEPS.map((s, i) => (
+              {flow.map((s, i) => (
                 <li key={s} className="flex items-center gap-2">
                   <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium ${i <= step ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
                     {i < step && <CheckCircle2 size={12} />} {s}
                   </span>
-                  {i < STEPS.length - 1 && <ArrowRight size={14} className="text-slate-300" />}
+                  {i < flow.length - 1 && <ArrowRight size={14} className="text-slate-300" />}
                 </li>
               ))}
             </ol>
           </Card>
 
-          <div className="grid gap-4 2xl:grid-cols-[minmax(320px,38%)_1fr]">
+          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(320px,38%)_minmax(0,1fr)]">
             <Card title="Bill file" actions={previewUrl && (
               <Button size="sm" variant="secondary" icon={RotateCw} onClick={() => setRotation((m) => ({ ...m, [sel.id]: ((m[sel.id] ?? 0) + 90) % 360 }))}>Rotate</Button>
             )}>
@@ -339,6 +383,12 @@ export default function OcrBills() {
                 </button>
               ) : sel.file && <p className="mt-2 text-[11px] text-slate-400">File is over 1 MB, so it isn't kept in this browser.</p>}
               {sel.file?.key && <p className="mt-1 text-[11px] text-slate-400">Stored in the cloud</p>}
+              {!sel.file && !posted && (
+                <label className="mt-2 inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-[#7a2228] hover:underline">
+                  <Paperclip size={13} /> Attach photo of the bill (optional)
+                  <input type="file" accept="image/*,application/pdf" hidden onChange={(e) => void attachFile(sel, e.target.files?.[0])} />
+                </label>
+              )}
               <span className="mt-3 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">{BILL_SCRIPTS[sel.script].short}</span>
             </Card>
 
@@ -383,10 +433,15 @@ export default function OcrBills() {
                           update(usual.length ? { vendor: v, lines: usual, readNote: `Filled ${usual.length} item(s) from ${v}'s last bill — type the quantities.` } : { vendor: v })
                         }} />
                     </label>
+                    <label className="text-xs text-slate-500">Branch
+                      <select aria-label="Branch" className={inputCls + ' mt-1'} value={sel.branch} disabled={locked} onChange={(e) => update({ branch: e.target.value })}>
+                        {BRANCHES.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    </label>
                     <label className="text-xs text-slate-500">Invoice no.<input className={inputCls + ' mt-1'} value={sel.invoiceNo ?? ''} disabled={locked} onChange={(e) => update({ invoiceNo: e.target.value })} /></label>
                     <label className="text-xs text-slate-500">Bill date<input type="date" className={inputCls + ' mt-1'} value={sel.date} disabled={locked} onChange={(e) => update({ date: e.target.value })} /></label>
                     <label className="text-xs text-slate-500">How it's paid
-                      <select className={inputCls + ' mt-1'} value={sel.type} disabled={locked} onChange={(e) => update({ type: e.target.value as Bill['type'] })}>
+                      <select aria-label="How it's paid" className={inputCls + ' mt-1'} value={sel.type} disabled={locked} onChange={(e) => update({ type: e.target.value as Bill['type'] })}>
                         <option value="credit">On credit (owed to vendor)</option>
                         <option value="other">Paid in cash by branch</option>
                       </select>
@@ -405,7 +460,7 @@ export default function OcrBills() {
                         {sel.lines.map((l, i) => (
                           <tr key={i} className="border-t border-slate-100">
                             <td className="min-w-[150px] py-1.5 pr-2">
-                              <input list="bill-items" className={inputCls + ' !py-1'} value={l.item} disabled={locked}
+                              <input list="bill-items" aria-label="Item" className={inputCls + ' !py-1'} value={l.item} disabled={locked}
                                 onChange={(e) => {
                                   const known = itemMemory.get(e.target.value.trim().toLowerCase())
                                   updateLine(i, known && !l.rate
@@ -448,7 +503,7 @@ export default function OcrBills() {
                     </div>
                   )}
 
-                  <div className="mt-4 grid gap-6 border-t border-slate-100 pt-4 lg:grid-cols-2">
+                  <div className="mt-4 grid grid-cols-1 gap-6 border-t border-slate-100 pt-4 lg:grid-cols-2">
                     <dl className="grid grid-cols-[1fr_auto] items-center gap-x-6 gap-y-1.5 text-sm">
                       <dt className="text-slate-500">Items (before tax)</dt><dd className="text-right tabular-nums">{inr(sums.subtotal)}</dd>
                       <dt className="text-slate-500">CGST</dt><dd className="text-right">{taxInput('cgst', sums.cgst)}</dd>
@@ -495,9 +550,9 @@ export default function OcrBills() {
                   )}
 
                   <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-                    {!posted && hasFile && (
+                    {!posted && hasFile && sel.script !== 'manual' && (
                       <Button variant="secondary" icon={RefreshCw} disabled={!!steps[sel.id]} onClick={guard(can('ocr', 'create'), () => void reread(sel))}>
-                        {steps[sel.id] ? steps[sel.id] : sel.script === 'en-typed' ? 'Read PDF again' : 'Read again (Tesseract)'}
+                        {steps[sel.id] ? steps[sel.id] : sel.script === 'en-typed' ? 'Read PDF again' : 'Read again (uses 1 of today’s 10)'}
                       </Button>
                     )}
                     <Button variant="ghost" icon={Trash2} onClick={guard(can('ocr', 'delete'), () => { if (confirm(`Delete ${sel.id}${posted ? ' and its voucher in Account Books' : ''}?`)) { deleteBill(sel); setSelId(''); setMessage(null) } })}>Delete bill</Button>

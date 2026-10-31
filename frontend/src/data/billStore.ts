@@ -1,6 +1,6 @@
 import { BILLS, type Bill, type BillLine } from './mock'
 import { imprestLedger } from './books'
-import { addLedger, addManualVoucher, deleteManualVoucher, fileToCloud, type CustomLedger, type VoucherLine } from './ledgerStore'
+import { addLedger, addManualVoucher, deleteManualVoucher, fileToCloud, ledgerKey, type CustomLedger, type VoucherLine } from './ledgerStore'
 import { cloudStore } from './cloudStore'
 
 // Bills in the OCR Bill Inbox, saved in this browser until the backend (Cloudflare) is ready.
@@ -74,17 +74,25 @@ export function billPostings(b: Bill, fallbackLedger = 'Groceries Purchased'): V
 
 /** Post a checked bill to Account Books as a Purchase voucher. Returns an error message, or null when done. */
 export function postBill(b: Bill, by: string, custom: CustomLedger[]): string | null {
-  const party = partyOf(b)
+  // A vendor already in Account Books is credited under its existing name, however this bill spells it.
+  const typed = partyOf(b)
+  const party = custom.find((c) => ledgerKey(c.name) === ledgerKey(typed))?.name ?? typed
   if (!party) return 'Type the vendor name first.'
   if (!b.lines.length) return 'Add at least one item.'
+  if (!b.date) return 'Enter the bill date.'
+  const empty = b.lines.findIndex((l) => !l.item.trim())
+  if (empty >= 0) return `Line ${empty + 1} has no item name. Type it, or remove the line.`
+  const noAmount = b.lines.findIndex((l) => lineBase(l) <= 0)
+  if (noAmount >= 0) return `“${b.lines[noAmount].item}” has no amount. Type the quantity and rate (or the amount), or remove the line.`
   const s = billSums(b)
+  if (s.mismatch) return `Items and tax come to ₹${s.total.toLocaleString('en-IN')}, but the bill total is ₹${(b.billTotal ?? 0).toLocaleString('en-IN')}. Fix the lines or the bill total first.`
   if (s.total <= 0) return 'The bill total is zero.'
   const now = new Date().toISOString()
   // A credit bill's vendor gets its own ledger under Sundry Creditors, like in Tally.
-  if (b.type === 'credit' && !custom.some((c) => c.name.toLowerCase() === party.toLowerCase())) {
+  if (b.type === 'credit' && !custom.some((c) => ledgerKey(c.name) === ledgerKey(party))) {
     addLedger({ name: party, group: 'creditors', opening: 0, addedBy: by, addedAt: now })
   }
-  const lines = billPostings(b)
+  const lines = billPostings(b).map((l) => (l.cr && l.ledger === typed ? { ...l, ledger: party } : l))
   const id = 'bill-' + b.id + '-' + Date.now().toString(36)
   const ok = addManualVoucher({
     id, type: 'Purchase', date: b.date, branch: b.branch, amount: s.total, lines, billId: b.id,

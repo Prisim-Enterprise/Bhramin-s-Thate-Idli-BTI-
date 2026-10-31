@@ -1,8 +1,10 @@
 import { IndianRupee } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card } from '../../../components/ui'
-import { Big, EmptyReport, ReportHeader, ShareBar, Summary, Tile, downloadCsv, money } from '../../../components/report'
-import { AGGREGATOR_COMMISSION, AGGREGATOR_SHARE, LAST_MONTH, PAYMENT_SPLIT, RECIPES, SALES_TREND } from '../../../data/mock'
+import { Big, EmptyReport, ReportHeader, ScopePicker, ShareBar, Summary, Tile, downloadCsv, money } from '../../../components/report'
+import SalesMargins from '../../../components/SalesMargins'
+import { monthName, useReportData } from '../../../data/analytics'
+import { AGGREGATOR_COMMISSION, AGGREGATOR_SHARE, BRANCHES, LAST_MONTH, PAYMENT_SPLIT, RECIPES, SALES_TREND, branchName } from '../../../data/mock'
 import { OUTLETS } from '../../../data/pnl'
 import { AddEntryButtons, EntrySales } from '../../../components/DayEntries'
 import { useEntries } from '../../../data/entries'
@@ -14,6 +16,7 @@ const DAY_NAMES: Record<string, string> = { Mon: 'Monday', Tue: 'Tuesday', Wed: 
 export default function SalesReport() {
   const { can } = useApp()
   const entries = useEntries()
+  const R = useReportData()
   const total = OUTLETS.reduce((s, b) => s + b.sales, 0)
   const last = OUTLETS.reduce((s, b) => s + (LAST_MONTH[b.id]?.sales ?? 0), 0)
   const change = ((total - last) / last) * 100
@@ -38,8 +41,11 @@ export default function SalesReport() {
     return (
       entries.length ? (
         <div className="mx-auto max-w-7xl">
-          <ReportHeader title="Sales Report" period="From day entries · amounts in ₹" actions={<AddEntryButtons disabled={!can('accounts', 'create')} />} />
-          <EntrySales />
+          <ReportHeader title="Sales Report" period={`${R.label} · ${R.branch ? branchName(R.branch) : 'all branches'} · sales, food cost and gross margin`}
+            actions={<><ScopePicker months={R.months} month={R.month} setMonth={R.setMonth} branch={R.branch} setBranch={R.setBranch} monthName={monthName} branches={BRANCHES} /><AddEntryButtons disabled={!can('accounts', 'create')} /></>} />
+          <SalesMargins d={R.d} scope={R.scope} />
+          <h2 className="mb-3 mt-6 text-sm font-semibold text-slate-800">Sales from the Imprest Books</h2>
+          <EntrySales month={R.scope.month} branch={R.scope.branch} />
         </div>
       ) : (
         <EmptyReport title="Sales Report" period="October 2026" icon={IndianRupee}

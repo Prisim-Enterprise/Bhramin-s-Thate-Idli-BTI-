@@ -97,9 +97,13 @@ export function sides(m: ManualVoucher, imprestOf: (branch: string) => string) {
   }
 }
 
+/** The same ledger however it was typed: capitals, extra spaces, dashes and dots don't matter
+ *  ("SRI HANUMAN TRADERS", "Sri Hanuman  Traders", "Staff-Lunch Exp" = "Staff - Lunch Exp"). */
+export const ledgerKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
 /** Group for a ledger name: the one it was created under, or a best guess. */
 export function groupOf(name: string, custom: CustomLedger[]): GroupId {
-  const c = custom.find((l) => l.name.toLowerCase() === name.toLowerCase())
+  const c = custom.find((l) => ledgerKey(l.name) === ledgerKey(name))
   if (c) return c.group
   if (/ - imprest$|^cash$/i.test(name)) return 'cash'
   if (/bank|o\/d a\/c|\bod a\/c/i.test(name)) return 'bank'

@@ -1,6 +1,6 @@
 import { branchName } from './mock'
 import { cashIn, type DayEntry, type PayoutType } from './entries'
-import { groupOf, sides, type CustomLedger, type ManualVoucher, type ReceiptFile } from './ledgerStore'
+import { groupOf, ledgerKey, sides, type CustomLedger, type ManualVoucher, type ReceiptFile } from './ledgerStore'
 
 // Tally-style account books built from day entries.
 // Each day entry becomes vouchers, exactly as the accountant posts them in Tally:
@@ -95,7 +95,13 @@ export function buildVouchers(entries: DayEntry[], manual: ManualVoucher[] = [],
   }
 
   out.sort((a, b) => a.date.localeCompare(b.date) || (a.addedAt ?? '').localeCompare(b.addedAt ?? ''))
-  return out.map((v, i) => ({ ...v, no: i + 1 }))
+  // One spelling per ledger, so a bill or day posted later under "Sri Hanuman Traders" lands in "SRI HANUMAN TRADERS".
+  // A ledger created by hand keeps its own spelling; otherwise the first one used wins.
+  const name = new Map<string, string>()
+  for (const c of custom) name.set(ledgerKey(c.name), c.name)
+  for (const v of out) for (const p of v.postings) if (!name.has(ledgerKey(p.ledger))) name.set(ledgerKey(p.ledger), p.ledger)
+  const same = (l: string) => name.get(ledgerKey(l)) ?? l
+  return out.map((v, i) => ({ ...v, no: i + 1, postings: v.postings.map((p) => ({ ...p, ledger: same(p.ledger) })) }))
 }
 
 /** The main line of a voucher, as Tally shows it in registers. */

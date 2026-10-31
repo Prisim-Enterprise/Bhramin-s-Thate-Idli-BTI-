@@ -4,6 +4,9 @@ import { useApp } from '../../context/AppContext'
 import { BILLS, EMPLOYEES, RECIPES, VENDOR_SPEND, computePay } from '../../data/mock'
 import { OUTLETS, buildPnl } from '../../data/pnl'
 import Hub, { type HubStat } from './Hub'
+import { FOOD_COST_TARGET, profitLoss, purchases, useReportData } from '../../data/analytics'
+import { usePostedBills } from '../../data/inventory'
+import { useBills } from '../../data/billStore'
 
 // Accounting home: one big button per report, plus day entries (typed in or read from a PDF).
 export default function AccountingHub() {
@@ -14,15 +17,23 @@ export default function AccountingHub() {
   const foodSold = RECIPES.reduce((s, r) => s + r.price * r.sold, 0)
   const foodCost = RECIPES.reduce((s, r) => s + r.cost * r.sold, 0)
   const ent = useEntryTotals()
-  const toCheck = BILLS.filter((b) => b.status === 'extracted' || b.status === 'failed').length
+  // Real figures for the latest month that has any.
+  const R = useReportData()
+  const pl = profitLoss(R.d, R.scope)
+  const pur = purchases(R.d, R.scope)
+  const posted = usePostedBills()
+  const toCheck = useBills().filter((b) => !posted.includes(b)).length + BILLS.filter((b) => b.status === 'extracted' || b.status === 'failed').length
+  const when = R.label.toLowerCase() === 'all months' ? '' : ` · ${R.label}`
 
   const stats: Record<string, HubStat> = {
     '/admin/accounting/books': ent.count ? { value: String(ent.count), caption: ent.count === 1 ? 'day entry in the books' : 'day entries in the books' } : { value: '—', caption: 'no entries yet' },
-    '/admin/accounting/pnl': !p.sales && !p.opex ? { value: '—', caption: 'no figures yet' } : { value: money(p.net), caption: p.net >= 0 ? 'profit this month' : 'loss this month', tone: p.net >= 0 ? 'good' : 'bad' },
+    '/admin/accounting/pnl': R.hasData ? { value: money(pl.net), caption: (pl.net >= 0 ? 'profit' : 'loss') + when, tone: pl.net >= 0 ? 'good' : 'bad' }
+      : !p.sales && !p.opex ? { value: '—', caption: 'no figures yet' } : { value: money(p.net), caption: p.net >= 0 ? 'profit this month' : 'loss this month', tone: p.net >= 0 ? 'good' : 'bad' },
     '/admin/accounting/sales': ent.count ? { value: money(ent.sales), caption: `food sales · ${ent.count} day ${ent.count === 1 ? 'entry' : 'entries'}` } : { value: money(p.sales), caption: 'sold this month' },
-    '/admin/accounting/expenses': ent.expense ? { value: money(ent.expense), caption: 'paid out in day entries' } : { value: money(p.opex + p.depreciation), caption: 'running costs' },
-    '/admin/accounting/purchases': ent.purchase ? { value: money(ent.purchase), caption: 'bought in day entries' } : { value: money(owed), caption: 'still to pay vendors', tone: owed ? 'warn' : 'good' },
-    '/admin/accounting/costing': { value: per100(foodCost, foodSold), caption: 'ingredients per ₹100 sold' },
+    '/admin/accounting/expenses': R.hasData && pl.running + pl.staff ? { value: money(pl.running + pl.staff), caption: 'expenses + staff' + when } : ent.expense ? { value: money(ent.expense), caption: 'paid out in day entries' } : { value: money(p.opex + p.depreciation), caption: 'running costs' },
+    '/admin/accounting/purchases': R.hasData && pur.total ? { value: money(pur.total), caption: `bought${when}${pur.owedTotal ? ` · ${money(pur.owedTotal)} owed` : ''}`, tone: pur.owedTotal ? 'warn' : undefined } : ent.purchase ? { value: money(ent.purchase), caption: 'bought in day entries' } : { value: money(owed), caption: 'still to pay vendors', tone: owed ? 'warn' : 'good' },
+    '/admin/accounting/costing': pl.foodPct != null ? { value: pl.foodPct.toFixed(1) + '%', caption: `food cost${when} · target ${FOOD_COST_TARGET}%`, tone: pl.foodPct > FOOD_COST_TARGET ? 'bad' : 'good' }
+      : { value: per100(foodCost, foodSold), caption: 'ingredients per ₹100 sold' },
     '/admin/accounting/salary': ent.salary ? { value: money(ent.salary), caption: 'salary paid in day entries' } : { value: money(pay.reduce((s, x) => s + x.net, 0)), caption: 'staff take-home' },
     '/admin/accounting/deductions': { value: money(pay.reduce((s, x) => s + x.deductions, 0), false), caption: 'cut from salaries' },
     '/admin/accounting/bills': { value: String(toCheck), caption: toCheck === 1 ? 'bill to check' : 'bills to check', tone: toCheck ? 'warn' : 'good' },

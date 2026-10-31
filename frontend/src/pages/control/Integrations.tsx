@@ -3,6 +3,8 @@ import { Brain, Network, Plug, Wifi, WifiOff } from 'lucide-react'
 import { Badge, Button, Card, PageHeader, Table, Toggle } from '../../components/ui'
 import { useApp } from '../../context/AppContext'
 import { BRANCHES } from '../../data/mock'
+import { Link } from 'react-router-dom'
+import { ConnectionStatus } from './DataFlow'
 
 export default function Integrations() {
   const { can } = useApp()
@@ -25,6 +27,12 @@ export default function Integrations() {
   return (
     <>
       <PageHeader title="Integrations & AI" subtitle="Connections, AI models and the branch network" />
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-800">Running now</h2>
+        <Link to="/control/flow" className="text-xs font-medium text-[#7a2228] hover:underline">See the data flow →</Link>
+      </div>
+      <ConnectionStatus />
+      <h2 className="mb-2 mt-6 text-sm font-semibold text-slate-800">Planned connections (not connected yet)</h2>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card title={<span className="flex items-center gap-2"><Plug size={16} /> Connections</span>} pad={false}>

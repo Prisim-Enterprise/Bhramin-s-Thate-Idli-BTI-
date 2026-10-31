@@ -6,7 +6,8 @@ import { blankEntry, guessType, type DayEntry } from '../data/entries'
 // and are reported back so the user can type the figures instead.
 
 export type ReadResult =
-  | { ok: true; entry: DayEntry; found: number; skipped: string[] }
+  // printedClosing = closing balance printed in the PDF; balanced = our figures arrive at the same closing.
+  | { ok: true; entry: DayEntry; found: number; skipped: string[]; printedClosing: number | null; balanced: boolean | null }
   | { ok: false; reason: string }
 
 const MONTHS: Record<string, string> = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' }
@@ -41,17 +42,22 @@ export async function pdfPageLines(file: Blob): Promise<string[][]> {
     pages.push(lines)
     const page = await doc.getPage(p)
     const content = await page.getTextContent()
-    // Group text pieces by their height on the page, then sort left to right.
-    const rows = new Map<number, { x: number; s: string }[]>()
-    for (const it of content.items) {
-      if (!('str' in it) || !it.str.trim()) continue
-      const y = Math.round(it.transform[5] / 3) * 3
-      const x = it.transform[4]
-      rows.set(y, [...(rows.get(y) ?? []), { x, s: it.str.trim() }])
+    // Group text pieces into printed lines, then sort each line left to right.
+    // Pieces in different font sizes sit a little higher or lower on the same line (Tally does this),
+    // so a piece joins a line when it is within half a text height of it, not by fixed bands.
+    const items = content.items
+      .filter((it): it is typeof it & { str: string; transform: number[]; height: number } => 'str' in it && !!it.str.trim())
+      .map((it) => ({ x: it.transform[4], y: it.transform[5], h: Math.abs(it.height || it.transform[3]) || 8, s: it.str.trim() }))
+      .sort((a, b) => b.y - a.y)
+    const rows: { y: number; h: number; parts: typeof items }[] = []
+    for (const it of items) {
+      const row = rows.find((r) => Math.abs(r.y - it.y) <= Math.max(2, Math.min(r.h, it.h) * 0.6))
+      if (row) row.parts.push(it)
+      else rows.push({ y: it.y, h: it.h, parts: [it] })
     }
-    ;[...rows.entries()]
-      .sort((a, b) => b[0] - a[0])
-      .forEach(([, parts]) => lines.push(parts.sort((a, b) => a.x - b.x).map((q) => q.s).join(' ').replace(/\s+/g, ' ')))
+    rows
+      .sort((a, b) => b.y - a.y)
+      .forEach((r) => lines.push(r.parts.sort((a, b) => a.x - b.x).map((q) => q.s).join(' ').replace(/\s+/g, ' ')))
   }
   return pages
 }
@@ -75,6 +81,7 @@ export function parseImprestLines(lines: string[], fileName: string): ReadResult
   e.source = 'pdf'
   e.fileName = fileName
   let found = 0
+  let printedClosing: number | null = null
   const skipped: string[] = []
 
   for (const line of lines) {
@@ -94,6 +101,9 @@ export function parseImprestLines(lines: string[], fileName: string): ReadResult
     // Opening balance
     const open = line.match(new RegExp(`Opening Balance\\s+${AMT}`, 'i'))
     if (open) { e.opening = num(open[1]); found++; continue }
+    // Closing balance, to check the reading: "Dr Closing Balance 3,93,182.00"
+    const close = line.match(new RegExp(`Closing Balance\\s+${AMT}`, 'i'))
+    if (close) { printedClosing = num(close[1]); continue }
 
     // Journal detail lines: "Mobikwik - Chandralayout 18,486.00 Dr"
     const det = line.match(new RegExp(`^(.+?)\\s+${AMT}\\s*(Dr|Cr)$`, 'i'))
@@ -116,17 +126,22 @@ export function parseImprestLines(lines: string[], fileName: string): ReadResult
       continue
     }
 
-    // Money paid out: "Dr Water Tanker Journal 10954 900.00"
-    const pay = line.match(new RegExp(`^Dr\\s+(.+?)\\s+(Journal|Payment|Contra|Receipt)\\s+\\S+\\s+${AMT}$`, 'i'))
+    // Money paid out: "Dr Water Tanker Journal 10954 900.00" (the voucher type is sometimes printed on a line of its own)
+    const pay = line.match(new RegExp(`^Dr\\s+(.+?)\\s+(?:(?:Journal|Payment|Contra|Receipt)\\s+)?(\\d+)\\s+${AMT}$`, 'i'))
     if (pay) {
-      e.payouts.push({ ledger: pay[1], amount: num(pay[3]), type: guessType(pay[1]) })
+      const ledger = pay[1].replace(/\s+(Journal|Payment|Contra|Receipt)$/i, '').trim()
+      e.payouts.push({ ledger, amount: num(pay[3]), type: guessType(ledger) })
       found++
-    }
+    } else if (/^Dr\s/i.test(line)) skipped.push(line)
   }
 
   if (!found) return { ok: false, reason: "No Imprest Book lines were found in this PDF. Check it's the right file, or type the figures in." }
   // Adding decimals can leave tiny errors (787.2800000001); keep two places.
   const r2 = (n: number) => Math.round(n * 100) / 100
   for (const k of ['opening', 'sales', 'cgst', 'sgst', 'container', 'discount', 'roundOff', 'mobikwik', 'swiggy', 'zomato', 'rapido'] as const) e[k] = r2(e[k])
-  return { ok: true, entry: e, found, skipped }
+  const ours = r2(e.opening + e.sales + e.cgst + e.sgst + e.container + e.roundOff - e.discount
+    - (e.mobikwik + e.swiggy + e.zomato + e.rapido) - e.payouts.reduce((s, p) => s + p.amount, 0))
+  // The Dr/Cr word printed before "Closing Balance" varies between Tally layouts, so compare the amount.
+  const balanced = printedClosing == null ? null : Math.abs(Math.abs(ours) - printedClosing) < 1
+  return { ok: true, entry: e, found, skipped, printedClosing, balanced }
 }

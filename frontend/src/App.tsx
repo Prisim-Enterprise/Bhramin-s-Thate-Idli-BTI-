@@ -3,6 +3,8 @@ import { Link, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import Layout, { HUBS, type HubId } from './components/Layout'
 import { NoAccess } from './components/ui'
+import { DashboardsOffScreen } from './components/DashboardPower'
+import { useSystem } from './data/systemStore'
 import { useApp } from './context/AppContext'
 import { useAuth } from './context/AuthContext'
 import { MODULES, type ModuleId } from './data/mock'
@@ -22,11 +24,18 @@ import AccountingHub from './pages/admin/AccountingHub'
 import DayEntry from './pages/admin/DayEntry'
 import AccountBooks from './pages/admin/AccountBooks'
 import KitchenHub from './pages/admin/KitchenHub'
-import SetupHub from './pages/admin/SetupHub'
 import BranchesIntegrations from './pages/admin/BranchesIntegrations'
 import Indents from './pages/admin/Indents'
 import Storage from './pages/admin/Storage'
 import PurchaseOrders from './pages/admin/PurchaseOrders'
+import LiveOrders from './pages/admin/ops/LiveOrders'
+import OnlineOrders from './pages/admin/ops/OnlineOrders'
+import StoreActions from './pages/admin/ops/StoreActions'
+import StockSummary from './pages/admin/inventory/StockSummary'
+import ClosingStock from './pages/admin/inventory/ClosingStock'
+import { PendingPurchases, PoApproval } from './pages/admin/inventory/Approvals'
+import ReportsCentre from './pages/admin/ReportsCentre'
+import { CrmPage, ManagementPage, MarketingPage, MenuPage } from './pages/admin/MoreTabs'
 
 import ControlHome from './pages/control/ControlHome'
 import Restaurants from './pages/control/Restaurants'
@@ -39,6 +48,8 @@ import Salary from './pages/control/Salary'
 import UsersPage from './pages/control/Users'
 import Roles from './pages/control/Roles'
 import Integrations from './pages/control/Integrations'
+import ActivityLog from './pages/control/ActivityLog'
+import DataFlow from './pages/control/DataFlow'
 
 function Guard({ module, children }: { module: ModuleId; children: ReactNode }) {
   const { can } = useApp()
@@ -60,7 +71,6 @@ const adminRoutes: R[] = [
   { path: 'branches', module: 'dashboard', el: <Branches /> },
   { path: 'accounting', module: 'dashboard', el: <AccountingHub /> },
   { path: 'kitchen', module: 'dashboard', el: <KitchenHub /> },
-  { path: 'setup', module: 'dashboard', el: <SetupHub /> },
   { path: 'accounting/bills', module: 'ocr', el: <OcrBills /> },
   { path: 'accounting/entry', module: 'accounts', el: <DayEntry /> },
   { path: 'accounting/entry/:id', module: 'accounts', el: <DayEntryKeyed /> },
@@ -72,16 +82,28 @@ const adminRoutes: R[] = [
   { path: 'accounting/deductions', module: 'deductions', el: <DeductionsReport /> },
   { path: 'accounting/books', module: 'accounts', el: <AccountBooks /> },
   { path: 'accounting/pnl', module: 'accounts', el: <ProfitLoss /> },
-  { path: 'setup/branches', module: 'settings', el: <BranchesIntegrations /> },
   { path: 'kitchen/indents', module: 'indent', el: <Indents /> },
   { path: 'kitchen/storage', module: 'indent', el: <Storage /> },
   { path: 'kitchen/purchase-orders', module: 'purchase', el: <PurchaseOrders /> },
+  { path: 'live-orders', module: 'sales', el: <LiveOrders /> },
+  { path: 'online-orders', module: 'sales', el: <OnlineOrders /> },
+  { path: 'store-actions', module: 'sales', el: <StoreActions /> },
+  { path: 'menu', module: 'sales', el: <MenuPage /> },
+  { path: 'inventory/stock', module: 'dashboard', el: <StockSummary /> },
+  { path: 'inventory/closing', module: 'dashboard', el: <ClosingStock /> },
+  { path: 'inventory/po-approval', module: 'purchase', el: <PoApproval /> },
+  { path: 'inventory/pending-purchases', module: 'dashboard', el: <PendingPurchases /> },
+  { path: 'marketing', module: 'sales', el: <MarketingPage /> },
+  { path: 'reports', module: 'dashboard', el: <ReportsCentre /> },
+  { path: 'management', module: 'dashboard', el: <ManagementPage /> },
+  { path: 'crm', module: 'sales', el: <CrmPage /> },
 ]
 
 // Prisim Control Panel portal — settings, money and access.
 const controlRoutes: R[] = [
   { path: '', module: 'settings', el: <ControlHome /> },
   { path: 'restaurants', module: 'settings', el: <Restaurants /> },
+  { path: 'branches', module: 'settings', el: <BranchesIntegrations /> },
   { path: 'sales', module: 'sales', el: <Sales /> },
   { path: 'expenses', module: 'expenses', el: <Expenses /> },
   { path: 'ocr', module: 'ocr', el: <OcrStatus /> },
@@ -90,11 +112,10 @@ const controlRoutes: R[] = [
   { path: 'salary', module: 'salary', el: <Salary /> },
   { path: 'users', module: 'users', el: <UsersPage /> },
   { path: 'roles', module: 'users', el: <Roles /> },
+  { path: 'activity', module: 'users', el: <ActivityLog /> },
+  { path: 'flow', module: 'settings', el: <DataFlow /> },
   { path: 'integrations', module: 'settings', el: <Integrations /> },
 ]
-
-// The same Control Panel pages, also reachable inside the Centre Kitchen Dashboard.
-const controlInAdmin: R[] = controlRoutes.filter((r) => r.path !== '')
 
 // Which big-button group a page belongs to, so it can show a "← back" link.
 function hubFor(path: string): HubId | null {
@@ -113,9 +134,21 @@ function BackLink({ hub }: { hub: HubId }) {
 
 function Portal({ portal, routes }: { portal: 'admin' | 'control'; routes: R[] }) {
   const auth = useAuth()
+  const { role } = useApp()
+  const system = useSystem(!!auth.session)
   // With Supabase on, only signed-in users can open a portal.
   if (auth.enabled && auth.loading) return null
   if (auth.enabled && !auth.session) return <Navigate to="/" replace />
+  // An admin turned the dashboards off: everyone else sees a notice until it's turned back on.
+  if (system?.off && role !== 'admin') return <DashboardsOffScreen message={system.message} at={system.at} />
+  // The Control Panel (settings, users, roles, money rules) is for admins only.
+  if (portal === 'control' && role !== 'admin') {
+    return (
+      <Layout portal="admin">
+        <NoAccess module="Prisim Control Panel (admins only)" />
+      </Layout>
+    )
+  }
   return (
     <Layout portal={portal}>
       <Routes>
@@ -137,7 +170,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Login />} />
-      <Route path="/admin/*" element={<Portal portal="admin" routes={[...adminRoutes, ...controlInAdmin]} />} />
+      <Route path="/admin/*" element={<Portal portal="admin" routes={adminRoutes} />} />
       <Route path="/control/*" element={<Portal portal="control" routes={controlRoutes} />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

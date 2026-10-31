@@ -1,215 +1,169 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ArrowDownRight, ArrowUpRight, Download, Printer, Scale } from 'lucide-react'
-import { Button, Card, PageHeader } from '../../components/ui'
-import { PNL_HISTORY, inr } from '../../data/mock'
-import { Big, EmptyReport, Summary, per100 } from '../../components/report'
-import { IS_SHARE } from '../../config'
-import { CENTRAL_TOTAL, OUTLETS, buildPnl } from '../../data/pnl'
+import { Scale } from 'lucide-react'
+import { Card } from '../../components/ui'
+import { Big, EmptyReport, ReportHeader, ScopePicker, Summary, Tile, downloadCsv, money, per100 } from '../../components/report'
+import { AddEntryButtons } from '../../components/DayEntries'
+import { BalanceSheet, ExpensesTab, IncomeReport, TrialBalance } from '../../components/FinalAccounts'
+import { useApp } from '../../context/AppContext'
+import { BRANCHES, branchName } from '../../data/mock'
+import { FOOD_COST_TARGET, byBranch, daily, monthName, profitLoss, useReportData } from '../../data/analytics'
 
-// Accounting style: negatives shown as −₹1,234
-const money = (n: number) => (n < 0 ? '−' : '') + inr(Math.round(Math.abs(n)))
+// Profit & Loss = Income − Expenses. Balance Sheet = Assets and Liabilities. Trial Balance = every ledger, both together.
+const TABS = [
+  { id: 'pnl', label: 'Profit & Loss' },
+  { id: 'income', label: 'Income' },
+  { id: 'expenses', label: 'Expenses' },
+  { id: 'bs', label: 'Balance Sheet' },
+  { id: 'tb', label: 'Trial Balance' },
+] as const
+
 const pct = (n: number, of: number) => (of ? ((n / of) * 100).toFixed(1) + '%' : '—')
 
-function Change({ now, before, costLine }: { now: number; before: number; costLine?: boolean }) {
-  if (!before) return <span className="text-slate-400">—</span>
-  const d = ((now - before) / Math.abs(before)) * 100
-  if (Math.abs(d) < 0.05) return <span className="text-slate-400">0%</span>
-  // For costs, going up is bad; for income and profit, going up is good.
-  const good = costLine ? d < 0 : d > 0
-  const Icon = d > 0 ? ArrowUpRight : ArrowDownRight
-  return (
-    <span className={`inline-flex items-center gap-0.5 ${good ? 'text-emerald-600' : 'text-rose-600'}`}>
-      <Icon size={13} />{Math.abs(d).toFixed(1)}%
-    </span>
-  )
-}
-
-function Tile({ label, value, sub, now, before, cost }: { label: string; value: number; sub: string; now: number; before: number; cost?: boolean }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className={`mt-2 text-2xl font-semibold tabular-nums ${value < 0 ? 'text-rose-600' : 'text-slate-900'}`}>{money(value)}</p>
-      <p className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-        {sub} · <Change now={now} before={before} costLine={cost} /> vs last month
-      </p>
-    </div>
-  )
-}
-
+// Profit & Loss worked out from day entries (Imprest Books) and posted bills. Nothing typed in by hand.
 export default function ProfitLoss() {
-  const [scope, setScope] = useState('ALL')
-  const ids = scope === 'ALL' ? OUTLETS.map((b) => b.id) : [scope]
-  const cur = useMemo(() => buildPnl(ids, 'this'), [scope])
-  const prev = useMemo(() => buildPnl(ids, 'last'), [scope])
-  const scopeName = scope === 'ALL' ? 'All outlets' : OUTLETS.find((b) => b.id === scope)!.name
+  const { can } = useApp()
+  const R = useReportData()
+  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('pnl')
+  const p = profitLoss(R.d, R.scope)
+  const branches = R.branch ? [] : byBranch(R.d, R.scope).sort((a, b) => b.p.net - a.p.net)
+  const trend = daily(R.d, R.scope)
+  const upload = <AddEntryButtons disabled={!can('accounts', 'create')} />
+  const picker = <ScopePicker months={R.months} month={R.month} setMonth={R.setMonth} branch={R.branch} setBranch={R.setBranch} monthName={monthName} branches={BRANCHES} />
 
-  const allNow = buildPnl(OUTLETS.map((b) => b.id), 'this')
-  const allPrev = buildPnl(OUTLETS.map((b) => b.id), 'last')
-  const trend = [
-    ...PNL_HISTORY,
-    { month: 'Sep', revenue: Math.round(allPrev.sales), net: Math.round(allPrev.net) },
-    { month: 'Oct', revenue: Math.round(allNow.sales), net: Math.round(allNow.net) },
-  ]
-  const byBranch = OUTLETS.map((b) => ({ b, p: buildPnl([b.id], 'this') })).sort((x, y) => y.p.net - x.p.net)
+  if (!R.hasData) {
+    return <EmptyReport title="Profit & Loss" period="Worked out from Imprest Books and bills" icon={Scale} actions={upload}
+      text="Upload an Imprest Book PDF (or enter a day by hand) and post bills from the OCR Bill Inbox. Profit & Loss is then worked out automatically." />
+  }
 
-  // Statement rows, in order. kind: line = normal row, total = bold subtotal, head = section title.
-  type Row = { label: string; now?: number; before?: number; kind: 'head' | 'line' | 'total' | 'grand'; cost?: boolean; indent?: boolean }
+  type Row = { label: string; v?: number; kind: 'head' | 'line' | 'total' | 'grand'; minus?: boolean }
   const rows: Row[] = [
     { label: 'Income', kind: 'head' },
-    { label: 'Dine-in & takeaway', now: cur.dineIn, before: prev.dineIn, kind: 'line', indent: true },
-    { label: 'Swiggy / Zomato orders', now: cur.online, before: prev.online, kind: 'line', indent: true },
-    { label: 'Net sales', now: cur.sales, before: prev.sales, kind: 'total' },
-    { label: 'Cost of food', kind: 'head' },
-    { label: 'Ingredients used', now: cur.food, before: prev.food, kind: 'line', indent: true, cost: true },
-    { label: 'Gross profit (sales minus ingredients)', now: cur.gross, before: prev.gross, kind: 'total' },
+    { label: 'Food sales (without GST)', v: p.sales.food, kind: 'line' },
+    { label: 'Container charges', v: p.sales.container, kind: 'line' },
+    ...(p.sales.roundOff ? [{ label: 'Round off', v: p.sales.roundOff, kind: 'line' as const }] : []),
+    { label: 'Less: settlement discounts', v: -p.sales.discount, kind: 'line', minus: true },
+    { label: 'Net income', v: p.income, kind: 'total' },
+    { label: 'Cost of food (ingredients bought)', kind: 'head' },
+    ...p.purchasesByLedger.map((x) => ({ label: x.k, v: -x.v, kind: 'line' as const, minus: true })),
+    { label: 'Gross profit (income minus ingredients)', v: p.gross, kind: 'total' },
     { label: 'Running costs', kind: 'head' },
-    ...cur.expenses.map((e, i) => ({ label: e.label, now: e.v, before: prev.expenses[i].v, kind: 'line' as const, indent: true, cost: true })),
-    { label: 'Total running costs', now: cur.opex, before: prev.opex, kind: 'total', cost: true },
-    { label: 'Profit before wear & tear', now: cur.ebitda, before: prev.ebitda, kind: 'total' },
-    { label: 'Wear & tear of equipment (depreciation)', now: cur.depreciation, before: prev.depreciation, kind: 'line', indent: true, cost: true },
-    { label: 'Net profit', now: cur.net, before: prev.net, kind: 'grand' },
+    ...p.expensesByLedger.map((x) => ({ label: x.k, v: -x.v, kind: 'line' as const, minus: true })),
+    { label: 'Staff', kind: 'head' },
+    ...p.salariesByLedger.map((x) => ({ label: x.k, v: -x.v, kind: 'line' as const, minus: true })),
+    { label: 'Net profit', v: p.net, kind: 'grand' },
   ]
 
-  const downloadCsv = () => {
-    const lines = [['Particulars', 'Oct 2026', '% of sales', 'Sep 2026'].join(',')]
-    rows.forEach((r) => lines.push([`"${r.label}"`, r.now !== undefined ? Math.round(r.now) : '', r.now !== undefined ? pct(r.now, cur.sales) : '', r.before !== undefined ? Math.round(r.before) : ''].join(',')))
-    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `BTI-PnL-${scopeName.replace(/\s+/g, '-')}-Oct-2026.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  if (!allNow.sales && !allNow.opex && !allNow.depreciation) {
-    return <EmptyReport title="Profit & Loss" period="October 2026" icon={Scale}
-      text="The profit and loss statement fills in once sales, ingredient costs and running costs are recorded for the month." />
-  }
+  const csv = () => downloadCsv(`BTI-Profit-Loss-${R.month || 'all'}${R.branch ? '-' + branchName(R.branch) : ''}.csv`, [
+    ['Particulars', 'Amount', '% of food sales'],
+    ...rows.map((r) => [r.label, r.v !== undefined ? r.v : '', r.v !== undefined ? pct(r.v, p.sales.food) : '']),
+  ])
+  const biggestCost = p.expensesByLedger[0]
 
   return (
     <div className="mx-auto max-w-7xl">
-      <PageHeader
-        title="Profit & Loss"
-        subtitle={`${scopeName} · October 2026 (to 26th) compared with September · sales shown excluding GST`}
-        actions={!IS_SHARE &&
-          <>
-            <Button variant="secondary" icon={Printer} onClick={() => window.print()}>Print</Button>
-            <Button icon={Download} onClick={downloadCsv}>Download CSV</Button>
-          </>
-        }
-      />
+      <ReportHeader title="Profit & Loss" period={`${R.label} · ${R.branch ? branchName(R.branch) : 'all branches'} · from ${p.sales.days} Imprest Book day(s) and posted bills`}
+        actions={<>{picker}{upload}</>} onCsv={csv} />
 
-      {/* Outlet filter */}
-      <div className="mb-4 flex flex-wrap gap-2">
-        {[{ id: 'ALL', name: 'All outlets' }, ...OUTLETS].map((b) => (
-          <button key={b.id} onClick={() => setScope(b.id)}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${scope === b.id ? 'bg-[#7a2228] text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-slate-300'}`}>
-            {b.name}
-          </button>
+      <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 print:hidden" role="tablist">
+        {TABS.map((t) => (
+          <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
+            className={`shrink-0 rounded-lg px-4 py-2 text-sm font-semibold ${tab === t.id ? 'bg-[#7a2228] text-white' : 'text-slate-600 hover:bg-[#fbf3e4]'}`}>{t.label}</button>
         ))}
       </div>
-
+      {tab === 'income' ? <IncomeReport d={R.d} scope={R.scope} />
+        : tab === 'expenses' ? <ExpensesTab d={R.d} scope={R.scope} />
+        : tab === 'bs' ? <BalanceSheet d={R.d} scope={R.scope} />
+        : tab === 'tb' ? <TrialBalance d={R.d} scope={R.scope} />
+        : (<>
       <Summary points={[
-        <>{scope === 'ALL' ? 'BTI' : scopeName} sold <Big>{money(cur.sales)}</Big> this month.</>,
-        cur.net >= 0
-          ? <>After paying for ingredients, staff, rent and every other cost, <Big>{money(cur.net)}</Big> was left as profit.</>
-          : <>After paying for ingredients, staff, rent and every other cost, there was a <Big>loss of {money(-cur.net)}</Big>.</>,
-        <>That is <Big>{per100(cur.net, cur.sales)} {cur.net >= 0 ? 'profit' : 'loss'}</Big> on every ₹100 of sales. Last month it was {per100(prev.net, prev.sales)}.</>,
-        <>Biggest costs: ingredients ({per100(cur.food, cur.sales)} of every ₹100), then {[...cur.expenses].sort((a, b) => b.v - a.v).slice(0, 2).map((e) => `${e.label.toLowerCase()} (${per100(e.v, cur.sales)})`).join(' and ')}.</>,
-        ...(scope === 'ALL' && byBranch.some((x) => x.p.net < 0)
-          ? [<><Big>{byBranch.filter((x) => x.p.net < 0).map((x) => x.b.name).join(', ')}</Big> made a loss this month. Tap it in "Profit by outlet" to see why.</>]
-          : []),
-      ]} />
+        <>BTI {R.branch ? `(${branchName(R.branch)}) ` : ''}sold <Big>{money(p.sales.food)}</Big> of food (without GST) and made a <Big>{p.net >= 0 ? 'profit' : 'loss'} of {money(Math.abs(p.net))}</Big>.</>,
+        p.foodPct != null
+          ? <>Ingredients cost <Big>{per100(p.food, p.sales.food)}</Big> of every ₹100 of food sold. The aim is ₹{FOOD_COST_TARGET} or less: {p.foodPct <= FOOD_COST_TARGET ? <Big>within target ✓</Big> : <Big>above target</Big>}.</>
+          : <>No food sales yet in this period, so food cost can't be worked out.</>,
+        biggestCost ? <>The biggest running cost is <Big>{biggestCost.k}</Big> ({money(biggestCost.v)}).</> : <>No running costs recorded.</>,
+        p.sales.discount ? <>Settlement discounts reduced income by <Big>{money(p.sales.discount)}</Big>.</> : <>No settlement discounts.</>,
+        branches.length > 1 ? <><Big>{branches[0].b.name}</Big> made the most profit; <Big>{branches[branches.length - 1].b.name}</Big> the least.</> : null,
+      ].filter(Boolean)} />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Tile label="Net sales" value={cur.sales} sub={scopeName} now={cur.sales} before={prev.sales} />
-        <Tile label="Gross profit" value={cur.gross} sub={`${pct(cur.gross, cur.sales)} of sales`} now={cur.gross} before={prev.gross} />
-        <Tile label="Running costs" value={cur.opex} sub={`${pct(cur.opex, cur.sales)} of sales`} now={cur.opex} before={prev.opex} cost />
-        <Tile label="Net profit" value={cur.net} sub={`${pct(cur.net, cur.sales)} margin`} now={cur.net} before={prev.net} />
+        <Tile label="Net income" value={money(p.income)} note={`${p.sales.days} day(s) of sales`} />
+        <Tile label="Ingredients" value={money(p.food)} note={p.foodPct != null ? `${p.foodPct.toFixed(1)}% of food sales` : '—'}
+          tone={p.foodPct == null ? 'slate' : p.foodPct <= FOOD_COST_TARGET ? 'green' : 'red'} />
+        <Tile label="Running costs + staff" value={money(p.running + p.staff)} note={`${per100(p.running + p.staff, p.sales.food)} of every ₹100`} />
+        <Tile label={p.net >= 0 ? 'Net profit' : 'Net loss'} value={money(p.net)} note={`${pct(p.net, p.sales.food)} of food sales`} tone={p.net >= 0 ? 'green' : 'red'} />
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-5">
-        {/* Statement */}
-        <Card title="Profit & Loss statement" className="xl:col-span-3" pad={false}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-medium">Particulars</th>
-                  <th className="px-3 text-right font-medium">Oct 2026</th>
-                  <th className="px-3 text-right font-medium">% of sales</th>
-                  <th className="px-3 text-right font-medium">Sep 2026</th>
-                  <th className="px-4 text-right font-medium">Change</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <Fragment key={r.label}>
-                    {r.kind === 'head' ? (
-                      <tr><td colSpan={5} className="px-4 pb-1 pt-4 text-xs font-bold uppercase tracking-wide text-[#7a2228]">{r.label}</td></tr>
-                    ) : (
-                      <tr className={
-                        r.kind === 'grand' ? `border-t-2 border-slate-300 font-bold ${r.now! < 0 ? 'bg-rose-50' : 'bg-emerald-50'}`
-                          : r.kind === 'total' ? 'border-t border-slate-200 bg-slate-50/60 font-semibold' : ''
-                      }>
-                        <td className={`py-2 ${r.indent ? 'pl-8' : 'pl-4'} pr-3`}>{r.label}</td>
-                        <td className={`px-3 text-right tabular-nums ${r.now! < 0 ? 'text-rose-600' : ''}`}>{money(r.now!)}</td>
-                        <td className="px-3 text-right text-xs text-slate-500 tabular-nums">{pct(r.now!, cur.sales)}</td>
-                        <td className="px-3 text-right text-slate-500 tabular-nums">{money(r.before!)}</td>
-                        <td className="px-4 text-right text-xs"><Change now={r.now!} before={r.before!} costLine={r.cost} /></td>
-                      </tr>
-                    )}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-5">
+        <Card title="Statement" className="lg:col-span-3" pad={false}>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs text-slate-500">
+              <tr><th className="px-4 py-2 text-left font-medium">Particulars</th><th className="px-4 text-right font-medium">Amount</th><th className="px-4 text-right font-medium">% of food sales</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <Fragment key={i}>
+                  {r.kind === 'head' ? (
+                    <tr><td colSpan={3} className="px-4 pb-1 pt-4 text-xs font-bold uppercase tracking-wide text-[#7a2228]">{r.label}</td></tr>
+                  ) : (
+                    <tr className={r.kind === 'grand' ? 'bg-[#fdf8ee] text-base font-bold' : r.kind === 'total' ? 'border-t border-slate-200 font-semibold' : ''}>
+                      <td className={`px-4 py-1.5 ${r.kind === 'line' ? 'pl-8 text-slate-700' : ''}`}>{r.label}</td>
+                      <td className={`px-4 text-right tabular-nums ${(r.v ?? 0) < 0 && r.kind !== 'line' ? 'text-rose-600' : ''}`}>{money(r.v ?? 0, false)}</td>
+                      <td className="px-4 text-right tabular-nums text-slate-500">{pct(Math.abs(r.v ?? 0), p.sales.food)}</td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
           <p className="border-t border-slate-100 px-4 py-2.5 text-xs text-slate-500">
-            Central kitchen & head office costs ({money(CENTRAL_TOTAL)}/month) are shared across outlets by their share of sales.
+            GST collected on sales and GST paid on bills are not income or cost (they go to and come back from the government), so they are left out.
+            Swiggy / Zomato amounts are as recorded in the Imprest Book; their commission shows up once their payout statements are added.
           </p>
         </Card>
 
-        <div className="space-y-4 xl:col-span-2">
-          {/* Trend */}
-          <Card title="Last 6 months · all outlets">
-            <div className="h-60">
-              <ResponsiveContainer>
-                <ComposedChart data={trend} margin={{ left: 0, right: 0 }}>
-                  <CartesianGrid vertical={false} stroke="#eef2f7" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="r" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={44} tickFormatter={(v) => '₹' + (v / 100000).toFixed(0) + 'L'} />
-                  <YAxis yAxisId="n" orientation="right" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={44} tickFormatter={(v) => '₹' + Math.round(v / 1000) + 'k'} />
-                  <Tooltip formatter={(v: number, name) => [money(v), name === 'revenue' ? 'Sales' : 'Net profit']} />
-                  <Legend formatter={(v) => (v === 'revenue' ? 'Sales' : 'Net profit')} />
-                  <Bar yAxisId="r" dataKey="revenue" fill="#e9d3a5" radius={[4, 4, 0, 0]} maxBarSize={36} />
-                  <Line yAxisId="n" dataKey="net" stroke="#7a2228" strokeWidth={2.5} dot={{ r: 3 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-
-          {/* Branch comparison */}
-          <Card title="Profit by outlet · this month" pad={false}>
-            <ul className="divide-y divide-slate-100">
-              {byBranch.map(({ b, p }) => (
-                <li key={b.id}>
-                  <button onClick={() => setScope(b.id)} className={`flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 ${scope === b.id ? 'bg-[#fbf3e4]' : ''}`}>
-                    <span className="flex-1">
-                      <span className="block text-sm font-medium">{b.name}</span>
-                      <span className="block text-xs text-slate-500">Sales {money(p.sales)} · GP {pct(p.gross, p.sales)}</span>
-                    </span>
-                    <span className="text-right">
-                      <span className={`block text-sm font-semibold tabular-nums ${p.net < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{money(p.net)}</span>
-                      <span className="block text-xs text-slate-500">{p.net < 0 ? 'loss' : pct(p.net, p.sales) + ' margin'}</span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </Card>
+        <div className="space-y-4 lg:col-span-2">
+          {trend.length > 1 && (
+            <Card title="Day by day">
+              <div className="h-64">
+                <ResponsiveContainer>
+                  <ComposedChart data={trend}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                    <XAxis dataKey="label" fontSize={11} />
+                    <YAxis fontSize={11} tickFormatter={(v: number) => money(v)} width={70} />
+                    <Tooltip formatter={(v: number) => money(v, false)} />
+                    <Legend />
+                    <Bar dataKey="food" name="Food sales" fill="#7a2228" />
+                    <Line dataKey="bought" name="Ingredients" stroke="#d9a441" strokeWidth={2} />
+                    <Line dataKey="spent" name="Other costs" stroke="#64748b" strokeWidth={2} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+          )}
+          {branches.length > 0 && (
+            <Card title="By branch" pad={false}>
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs text-slate-500">
+                  <tr><th className="px-4 py-2 text-left font-medium">Branch</th><th className="px-3 text-right font-medium">Food sales</th><th className="px-3 text-right font-medium">Food cost</th><th className="px-4 text-right font-medium">Profit</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {branches.map(({ b, p: q }) => (
+                    <tr key={b.id} className="cursor-pointer hover:bg-slate-50" onClick={() => R.setBranch(b.id)}>
+                      <td className="px-4 py-2 font-medium">{b.name}</td>
+                      <td className="px-3 text-right tabular-nums">{money(q.sales.food)}</td>
+                      <td className={`px-3 text-right tabular-nums ${q.foodPct != null && q.foodPct > FOOD_COST_TARGET ? 'text-rose-600' : ''}`}>{q.foodPct != null ? q.foodPct.toFixed(1) + '%' : '—'}</td>
+                      <td className={`px-4 text-right font-semibold tabular-nums ${q.net < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{money(q.net)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">Click a branch to see its own statement.</p>
+            </Card>
+          )}
         </div>
       </div>
+      </>)}
     </div>
   )
 }

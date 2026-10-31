@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { syncAll } from '../data/cloudStore'
-import { ROLES, type RoleId } from '../data/mock'
+import { DEFAULT_PERMISSIONS, ROLES, type PermissionMatrix, type RoleId } from '../data/mock'
+import { API_ON, getPermissions } from '../lib/api'
 import { useApp } from './AppContext'
 
 type Auth = {
@@ -23,8 +24,13 @@ export function roleOf(session: Session | null): RoleId {
   return ROLES.some((x) => x.id === r) ? (r as RoleId) : 'auditor'
 }
 
+/** A saved matrix with any newer modules filled in from the defaults. */
+export function fillPermissions(m: Partial<Record<RoleId, Partial<PermissionMatrix[RoleId]>>>): PermissionMatrix {
+  return Object.fromEntries(ROLES.map((r) => [r.id, { ...DEFAULT_PERMISSIONS[r.id], ...(m[r.id] ?? {}) }])) as PermissionMatrix
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { setRole } = useApp()
+  const { setRole, setPermissions } = useApp()
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(!!supabase)
 
@@ -46,11 +52,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signedIn = !!session
   useEffect(() => {
     if (!signedIn) return
+    // Role permissions are set by an admin in the Control Panel and kept on the server, so every login gets the same rules.
+    const loadPermissions = () => {
+      if (!API_ON) return
+      getPermissions<PermissionMatrix>()
+        .then((r) => setPermissions(fillPermissions(r.matrix)))
+        .catch(() => { /* keep the last known rules */ })
+    }
     void syncAll()
-    const onFocus = () => { if (document.visibilityState === 'visible') void syncAll() }
+    loadPermissions()
+    const onFocus = () => { if (document.visibilityState === 'visible') { void syncAll(); loadPermissions() } }
     document.addEventListener('visibilitychange', onFocus)
     return () => document.removeEventListener('visibilitychange', onFocus)
-  }, [signedIn])
+  }, [signedIn, setPermissions])
 
   const signIn = async (email: string, password: string) => {
     if (!supabase) return null
