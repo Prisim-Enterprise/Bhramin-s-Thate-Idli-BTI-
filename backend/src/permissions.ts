@@ -60,7 +60,8 @@ export const KIND_RULES: Record<string, { write: [ModuleId, Action[]][]; remove:
   bills: { write: [['ocr', ['create', 'edit']]], remove: [['ocr', ['delete', 'edit']]] },
   // Posting a checked bill writes a voucher (and a vendor ledger), so bill approvers may too.
   ledgers: { write: [['accounts', ['create', 'edit']], ['ocr', ['approve']]], remove: [['accounts', ['delete', 'edit']]] },
-  manualVouchers: { write: [['accounts', ['create', 'edit']], ['ocr', ['approve']]], remove: [['accounts', ['delete', 'edit']], ['ocr', ['approve']]] },
+  // Branch managers report petty expenses as journals (Expenses: create); a login tied to one branch stays limited to it.
+  manualVouchers: { write: [['accounts', ['create', 'edit']], ['ocr', ['approve']], ['expenses', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']], ['ocr', ['approve']], ['expenses', ['edit']]] },
   // Closing stock counted at outlets (Inventory → Closing Stock Tracker).
   closingStock: { write: [['indent', ['create', 'edit']], ['purchase', ['create', 'edit']]], remove: [['indent', ['delete', 'edit']]] },
 }

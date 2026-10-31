@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { AlertTriangle, BookText, CheckCircle2, ChevronDown, ChevronRight, FileUp, Paperclip, Plus, Search, Trash2 } from 'lucide-react'
+import { AlertTriangle, BookText, CheckCircle2, ChevronDown, ChevronRight, Paperclip, Plus, Search, Trash2 } from 'lucide-react'
 import { Button, Card, EmptyState, inputCls } from '../../components/ui'
 import { AddLedgerDialog, VoucherDialog } from '../../components/LedgerDialogs'
 import { useApp } from '../../context/AppContext'
@@ -288,7 +288,6 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
               <div className="flex flex-wrap items-end gap-2">
                 <label className="text-xs text-slate-500">From<input type="date" className={inputCls + ' mt-0.5 !py-1.5'} value={from} onChange={(e) => setFrom(e.target.value)} /></label>
                 <label className="text-xs text-slate-500">To<input type="date" className={inputCls + ' mt-0.5 !py-1.5'} value={to} onChange={(e) => setTo(e.target.value)} /></label>
-                <Button variant="secondary" icon={FileUp} onClick={guard(() => setDialog('receipt'))}>Upload receipt</Button>
                 <Button icon={Plus} onClick={guard(() => setDialog('voucher'))}>Add voucher</Button>
               </div>
             </div>
@@ -317,7 +316,7 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
                 </thead>
                 <tbody>
                   {!rows.length && (
-                    <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">No vouchers in this ledger{from || to ? ' for these dates' : ''} yet. Use <b>Add voucher</b> or <b>Upload receipt</b>.</td></tr>
+                    <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">No vouchers in this ledger{from || to ? ' for these dates' : ''} yet. Use <b>Add voucher</b>.</td></tr>
                   )}
                   {rows.map(({ v, p }) => {
                     const isOpen = open === v.id

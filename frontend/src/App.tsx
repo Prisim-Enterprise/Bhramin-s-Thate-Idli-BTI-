@@ -17,6 +17,7 @@ import FoodCostReport from './pages/admin/reports/FoodCostReport'
 import SalesReport from './pages/admin/reports/SalesReport'
 import ExpensesReport from './pages/admin/reports/ExpensesReport'
 import PurchasesReport from './pages/admin/reports/PurchasesReport'
+import Vendors from './pages/admin/Vendors'
 import SalaryReport from './pages/admin/reports/SalaryReport'
 import DeductionsReport from './pages/admin/reports/DeductionsReport'
 import ProfitLoss from './pages/admin/ProfitLoss'
@@ -31,6 +32,7 @@ import PurchaseOrders from './pages/admin/PurchaseOrders'
 import LiveOrders from './pages/admin/ops/LiveOrders'
 import OnlineOrders from './pages/admin/ops/OnlineOrders'
 import StoreActions from './pages/admin/ops/StoreActions'
+import PettyExpenses from './pages/admin/ops/PettyExpenses'
 import StockSummary from './pages/admin/inventory/StockSummary'
 import ClosingStock from './pages/admin/inventory/ClosingStock'
 import { PendingPurchases, PoApproval } from './pages/admin/inventory/Approvals'
@@ -78,6 +80,7 @@ const adminRoutes: R[] = [
   { path: 'accounting/sales', module: 'sales', el: <SalesReport /> },
   { path: 'accounting/expenses', module: 'expenses', el: <ExpensesReport /> },
   { path: 'accounting/purchases', module: 'purchase', el: <PurchasesReport /> },
+  { path: 'accounting/vendors', module: 'purchase', el: <Vendors /> },
   { path: 'accounting/salary', module: 'salary', el: <SalaryReport /> },
   { path: 'accounting/deductions', module: 'deductions', el: <DeductionsReport /> },
   { path: 'accounting/books', module: 'accounts', el: <AccountBooks /> },
@@ -88,6 +91,7 @@ const adminRoutes: R[] = [
   { path: 'live-orders', module: 'sales', el: <LiveOrders /> },
   { path: 'online-orders', module: 'sales', el: <OnlineOrders /> },
   { path: 'store-actions', module: 'sales', el: <StoreActions /> },
+  { path: 'petty-expenses', module: 'expenses', el: <PettyExpenses /> },
   { path: 'menu', module: 'sales', el: <MenuPage /> },
   { path: 'inventory/stock', module: 'dashboard', el: <StockSummary /> },
   { path: 'inventory/closing', module: 'dashboard', el: <ClosingStock /> },

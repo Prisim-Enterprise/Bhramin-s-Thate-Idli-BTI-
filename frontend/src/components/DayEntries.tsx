@@ -77,7 +77,7 @@ export function AddEntryButtons({ disabled }: { disabled?: boolean }) {
   }
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="relative flex flex-col items-end gap-2">
       <div className="flex flex-wrap gap-2">
         <button disabled={disabled} onClick={() => navigate('/admin/accounting/entry')}
           className="inline-flex items-center gap-2 rounded-xl border-2 border-[#7a2228] bg-white px-4 py-2.5 font-semibold text-[#7a2228] hover:bg-[#fbf3e4] disabled:opacity-50">
@@ -90,8 +90,9 @@ export function AddEntryButtons({ disabled }: { disabled?: boolean }) {
         <input ref={input} type="file" accept="application/pdf,.pdf" multiple hidden aria-label="Imprest Book PDFs"
           onChange={(ev) => void onFiles([...(ev.target.files ?? [])])} />
       </div>
+      {/* Drops down over the page, so showing it never pushes the heading or tiles out of line. */}
       {results.length > 0 && (
-        <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white p-3 text-left text-sm shadow-sm" role="status">
+        <div className="absolute left-0 top-full z-30 mt-2 w-[min(36rem,calc(100vw-2rem))] sm:left-auto sm:right-0 rounded-xl border border-slate-200 bg-white p-3 text-left text-sm shadow-lg" role="status">
           <div className="mb-2 flex items-center justify-between">
             <b>Imprest Book upload</b>
             <button className="text-slate-400 hover:text-slate-700" aria-label="Close" onClick={() => setResults([])}><X size={16} /></button>

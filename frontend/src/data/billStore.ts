@@ -84,6 +84,11 @@ export function postBill(b: Bill, by: string, custom: CustomLedger[]): string | 
   if (empty >= 0) return `Line ${empty + 1} has no item name. Type it, or remove the line.`
   const noAmount = b.lines.findIndex((l) => lineBase(l) <= 0)
   if (noAmount >= 0) return `“${b.lines[noAmount].item}” has no amount. Type the quantity and rate (or the amount), or remove the line.`
+  // The same bill (same vendor and bill number) posted twice would count the purchase twice.
+  const inv = (b.invoiceNo ?? '').trim().toLowerCase().replace(/\s+/g, '')
+  const twin = inv && bills.get().find((x) => x.id !== b.id && x.voucherId && ledgerKey(x.vendor) === ledgerKey(b.vendor)
+    && (x.invoiceNo ?? '').trim().toLowerCase().replace(/\s+/g, '') === inv)
+  if (twin) return `Bill no. ${b.invoiceNo} from ${b.vendor} is already posted as ${twin.id} (${twin.date}). If this is a different bill, check the bill number.`
   const s = billSums(b)
   if (s.mismatch) return `Items and tax come to ₹${s.total.toLocaleString('en-IN')}, but the bill total is ₹${(b.billTotal ?? 0).toLocaleString('en-IN')}. Fix the lines or the bill total first.`
   if (s.total <= 0) return 'The bill total is zero.'

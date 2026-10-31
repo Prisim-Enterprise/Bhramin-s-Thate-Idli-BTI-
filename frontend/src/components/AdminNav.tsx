@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   Boxes, Briefcase, Calculator, ChefHat, ChevronDown, ChevronRight, Clock, ClipboardCheck, Contact, FileBarChart, Globe, LayoutDashboard,
-  LayoutGrid, ListChecks, Megaphone, PackageSearch, Receipt, Store, UtensilsCrossed, type LucideIcon,
+  LayoutGrid, ListChecks, Wallet, Megaphone, PackageSearch, Receipt, Store, UtensilsCrossed, type LucideIcon,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { ModuleId } from '../data/mock'
@@ -29,6 +29,7 @@ export const adminSidebar = (): SideEntry[] => (cached ??= [
     { to: '/admin/live-orders', label: 'Live Orders', icon: Clock, module: 'sales' },
     { to: '/admin/online-orders', label: 'Online Orders', icon: Globe, module: 'sales' },
     { to: '/admin/store-actions', label: 'Menu & Store Actions', icon: Receipt, module: 'sales' },
+    { to: '/admin/petty-expenses', label: 'Petty Expenses', icon: Wallet, module: 'expenses' },
   ] },
   { kind: 'group', label: 'Accounting', icon: Calculator, items: hubItems('accounting', 'All accounting') },
   { kind: 'group', label: 'Kitchen Manager', icon: ChefHat, items: hubItems('kitchen', 'Kitchen overview') },

@@ -6,6 +6,7 @@ import { OUTLETS, buildPnl } from '../../data/pnl'
 import Hub, { type HubStat } from './Hub'
 import { FOOD_COST_TARGET, profitLoss, purchases, useReportData } from '../../data/analytics'
 import { usePostedBills } from '../../data/inventory'
+import { ledgerKey } from '../../data/ledgerStore'
 import { useBills } from '../../data/billStore'
 
 // Accounting home: one big button per report, plus day entries (typed in or read from a PDF).
@@ -31,6 +32,8 @@ export default function AccountingHub() {
       : !p.sales && !p.opex ? { value: '—', caption: 'no figures yet' } : { value: money(p.net), caption: p.net >= 0 ? 'profit this month' : 'loss this month', tone: p.net >= 0 ? 'good' : 'bad' },
     '/admin/accounting/sales': ent.count ? { value: money(ent.sales), caption: `food sales · ${ent.count} day ${ent.count === 1 ? 'entry' : 'entries'}` } : { value: money(p.sales), caption: 'sold this month' },
     '/admin/accounting/expenses': R.hasData && pl.running + pl.staff ? { value: money(pl.running + pl.staff), caption: 'expenses + staff' + when } : ent.expense ? { value: money(ent.expense), caption: 'paid out in day entries' } : { value: money(p.opex + p.depreciation), caption: 'running costs' },
+    '/admin/accounting/vendors': (() => { const n = new Set(posted.filter((b) => b.vendor.trim()).map((b) => ledgerKey(b.vendor))).size
+      return n ? { value: String(n), caption: n === 1 ? 'vendor with posted bills' : 'vendors with posted bills' } : { value: '—', caption: 'no posted bills yet' } })(),
     '/admin/accounting/purchases': R.hasData && pur.total ? { value: money(pur.total), caption: `bought${when}${pur.owedTotal ? ` · ${money(pur.owedTotal)} owed` : ''}`, tone: pur.owedTotal ? 'warn' : undefined } : ent.purchase ? { value: money(ent.purchase), caption: 'bought in day entries' } : { value: money(owed), caption: 'still to pay vendors', tone: owed ? 'warn' : 'good' },
     '/admin/accounting/costing': pl.foodPct != null ? { value: pl.foodPct.toFixed(1) + '%', caption: `food cost${when} · target ${FOOD_COST_TARGET}%`, tone: pl.foodPct > FOOD_COST_TARGET ? 'bad' : 'good' }
       : { value: per100(foodCost, foodSold), caption: 'ingredients per ₹100 sold' },

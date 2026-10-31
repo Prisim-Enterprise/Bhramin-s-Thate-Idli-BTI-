@@ -5,7 +5,7 @@ import AdminNav, { allSideLinks } from './AdminNav'
 import AccountMenu from './AccountMenu'
 import { DashboardsOffBanner } from './DashboardPower'
 import {
-  ScanLine, BookOpenCheck, ClipboardList, Warehouse, ShoppingCart, Store, Settings2, Building2, IndianRupee, Receipt, Cpu, PackagePlus, MinusCircle, Wallet, Users, ShieldCheck, Plug, Scale, Calculator, Library, ChevronRight, ChefHat, Menu, X, Bell, LogOut, type LucideIcon, ArrowLeftRight, Activity, Network, PanelLeftClose, PanelLeftOpen,
+  ScanLine, BookOpenCheck, ClipboardList, Warehouse, ShoppingCart, Store, Settings2, Building2, IndianRupee, Receipt, Cpu, PackagePlus, MinusCircle, Wallet, Users, ShieldCheck, Plug, Scale, Calculator, Library, ChevronRight, ChefHat, Menu, X, Bell, LogOut, type LucideIcon, Truck, ArrowLeftRight, Activity, Network, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
@@ -50,13 +50,14 @@ export type HubItem = NavItem & { desc: string }
 export type HubId = 'accounting' | 'kitchen'
 export const HUBS: Record<HubId, { label: string; icon: LucideIcon; to: string; subtitle: string; items: HubItem[] }> = {
   accounting: {
-    label: 'Accounting', icon: Calculator, to: '/admin/accounting', subtitle: 'October 2026 · pick a report to open it',
+    label: 'Accounting', icon: Calculator, to: '/admin/accounting', subtitle: 'Pick a report to open it',
     items: [
       { to: '/admin/accounting/books', label: 'Account Books', icon: Library, module: 'accounts', desc: 'Cash book, ledgers and registers for every branch' },
       { to: '/admin/accounting/pnl', label: 'Profit & Loss', icon: Scale, module: 'accounts', desc: 'Did we make money this month?' },
       { to: '/admin/accounting/sales', label: 'Sales Report', icon: IndianRupee, module: 'sales', desc: 'How much each outlet sold' },
       { to: '/admin/accounting/expenses', label: 'Expenses Report', icon: Receipt, module: 'expenses', desc: 'Where the money went' },
       { to: '/admin/accounting/purchases', label: 'Purchases Report', icon: PackagePlus, module: 'purchase', desc: 'What we bought and still owe' },
+      { to: '/admin/accounting/vendors', label: 'Vendors', icon: Truck, module: 'purchase', desc: 'Every vendor and how much we bought from each' },
       { to: '/admin/accounting/costing', label: 'Food Cost Report', icon: BookOpenCheck, module: 'accounts', desc: 'Ingredient cost vs selling price' },
       { to: '/admin/accounting/salary', label: 'Salary Report', icon: Wallet, module: 'salary', desc: "This month's staff salaries" },
       { to: '/admin/accounting/deductions', label: 'Deductions Report', icon: MinusCircle, module: 'deductions', desc: 'PF, ESI and other cuts explained' },
