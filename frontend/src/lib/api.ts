@@ -141,3 +141,12 @@ export async function getMisLayout(): Promise<{ map: Record<string, string>; at:
 export async function putMisLayout(map: Record<string, string>): Promise<{ map: Record<string, string> }> {
   return (await call('/api/settings/mis', sendJson('PUT', map))).json() as Promise<{ map: Record<string, string> }>
 }
+
+/** Centre Kitchen reorder levels (itemKey -> level). */
+export type CkItemSetting = { reorder: number; unit: string }
+export async function getCkSettings(): Promise<{ items: Record<string, CkItemSetting>; at: string | null; by: string | null }> {
+  return (await call('/api/settings/ck')).json() as Promise<{ items: Record<string, CkItemSetting>; at: string | null; by: string | null }>
+}
+export async function putCkSettings(items: Record<string, CkItemSetting>): Promise<{ items: Record<string, CkItemSetting> }> {
+  return (await call('/api/settings/ck', sendJson('PUT', items))).json() as Promise<{ items: Record<string, CkItemSetting> }>
+}

@@ -26,9 +26,9 @@ import DayEntry from './pages/admin/DayEntry'
 import AccountBooks from './pages/admin/AccountBooks'
 import KitchenHub from './pages/admin/KitchenHub'
 import BranchesIntegrations from './pages/admin/BranchesIntegrations'
-import Indents from './pages/admin/Indents'
-import Storage from './pages/admin/Storage'
 import PurchaseOrders from './pages/admin/PurchaseOrders'
+import CentreKitchen from './pages/admin/kitchen/CentreKitchen'
+import CentreKitchenControl from './pages/control/CentreKitchenControl'
 import LiveOrders from './pages/admin/ops/LiveOrders'
 import OnlineOrders from './pages/admin/ops/OnlineOrders'
 import StoreActions from './pages/admin/ops/StoreActions'
@@ -85,8 +85,9 @@ const adminRoutes: R[] = [
   { path: 'accounting/deductions', module: 'deductions', el: <DeductionsReport /> },
   { path: 'accounting/books', module: 'accounts', el: <AccountBooks /> },
   { path: 'accounting/pnl', module: 'accounts', el: <ProfitLoss /> },
-  { path: 'kitchen/indents', module: 'indent', el: <Indents /> },
-  { path: 'kitchen/storage', module: 'indent', el: <Storage /> },
+  { path: 'kitchen/centre', module: 'indent', el: <CentreKitchen /> },
+  { path: 'kitchen/indents', module: 'indent', el: <CentreKitchen key="indents" initial="indents" /> },
+  { path: 'kitchen/storage', module: 'indent', el: <CentreKitchen key="stock" initial="stock" /> },
   { path: 'kitchen/purchase-orders', module: 'purchase', el: <PurchaseOrders /> },
   { path: 'live-orders', module: 'sales', el: <LiveOrders /> },
   { path: 'online-orders', module: 'sales', el: <OnlineOrders /> },
@@ -108,6 +109,7 @@ const controlRoutes: R[] = [
   { path: '', module: 'settings', el: <ControlHome /> },
   { path: 'restaurants', module: 'settings', el: <Restaurants /> },
   { path: 'branches', module: 'settings', el: <BranchesIntegrations /> },
+  { path: 'kitchen', module: 'settings', el: <CentreKitchenControl /> },
   { path: 'sales', module: 'sales', el: <Sales /> },
   { path: 'expenses', module: 'expenses', el: <Expenses /> },
   { path: 'ocr', module: 'ocr', el: <OcrStatus /> },

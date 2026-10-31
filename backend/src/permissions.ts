@@ -64,6 +64,10 @@ export const KIND_RULES: Record<string, { write: [ModuleId, Action[]][]; remove:
   manualVouchers: { write: [['accounts', ['create', 'edit']], ['ocr', ['approve']], ['expenses', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']], ['ocr', ['approve']], ['expenses', ['edit']]] },
   // Closing stock counted at outlets (Inventory → Closing Stock Tracker).
   closingStock: { write: [['indent', ['create', 'edit']], ['purchase', ['create', 'edit']]], remove: [['indent', ['delete', 'edit']]] },
+  // Centre Kitchen: goods received and goods issued to outlets (kept under branch CK).
+  stockMoves: { write: [['indent', ['approve', 'edit']]], remove: [['indent', ['delete', 'edit']]] },
+  // Requests from outlets to the Centre Kitchen (kept under the asking outlet's branch).
+  indents: { write: [['indent', ['create', 'edit', 'approve']]], remove: [['indent', ['delete', 'edit']]] },
 }
 // Uploading files (bills, receipts) and reading handwritten bills.
 export const FILE_RULE: [ModuleId, Action[]][] = [['ocr', ['create']], ['accounts', ['create']]]

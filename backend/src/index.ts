@@ -176,6 +176,27 @@ async function handle(req: Request, env: Env): Promise<Response> {
 
   // GET /api/settings/mis -> where each ledger goes in the MIS Profit & Loss (everyone reads it)
   // PUT /api/settings/mis {ledgerKey: heading} (admins only)
+  // GET /api/settings/ck -> Centre Kitchen reorder levels {itemKey: {reorder, unit}}   PUT (admins only)
+  if (parts[1] === 'settings' && parts[2] === 'ck') {
+    if (req.method === 'GET') {
+      const row = await setting(env, 'ck')
+      return json({ items: row ? JSON.parse(row.value) : {}, at: row?.updated_at ?? null, by: row?.updated_by ?? null })
+    }
+    if (req.method === 'PUT') {
+      if (!isAdmin) return json({ error: 'Only admins can change Centre Kitchen settings.' }, 403)
+      const input = (await req.json()) as Record<string, { reorder?: unknown; unit?: unknown }>
+      const items: Record<string, { reorder: number; unit: string }> = {}
+      for (const [k, v] of Object.entries(input ?? {}).slice(0, 1000)) {
+        const reorder = Number(v?.reorder)
+        if (Number.isFinite(reorder) && reorder >= 0) items[k.slice(0, 120)] = { reorder, unit: String(v?.unit ?? '').slice(0, 20) }
+      }
+      await saveSetting(env, 'ck', items, user.email)
+      await audit(env, user.email, 'ck-settings', 'settings', 'ck')
+      return json({ items })
+    }
+    return json({ error: 'Not allowed' }, 405)
+  }
+
   if (parts[1] === 'settings' && parts[2] === 'mis') {
     const HEADS = ['food', 'rent', 'salaries', 'utilities', 'fixed', 'variable']
     if (req.method === 'GET') {

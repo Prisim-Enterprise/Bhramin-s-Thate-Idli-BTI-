@@ -26,6 +26,7 @@ export const CONTROL_NAV: NavItem[] = [
   { to: '/control', label: 'Control Overview', icon: Settings2, module: 'settings' },
   { to: '/control/restaurants', label: 'Restaurants & Branches', icon: Building2, module: 'settings' },
   { to: '/control/branches', label: 'Branch Integrations', icon: Store, module: 'settings' },
+  { to: '/control/kitchen', label: 'Centre Kitchen', icon: ChefHat, module: 'settings' },
   { to: '/control/sales', label: 'Sales', icon: IndianRupee, module: 'sales' },
   { to: '/control/expenses', label: 'Expenses', icon: Receipt, module: 'expenses' },
   { to: '/control/ocr', label: 'Bill Reading', icon: Cpu, module: 'ocr' },
@@ -39,9 +40,9 @@ export const CONTROL_NAV: NavItem[] = [
   { to: '/control/integrations', label: 'Integrations & AI', icon: Plug, module: 'settings' },
 ]
 const CONTROL_GROUPS: NavGroup[] = [
-  { section: 'Setup', items: CONTROL_NAV.slice(0, 3) },
-  { section: 'Money', items: CONTROL_NAV.slice(3, 9) },
-  { section: 'Access & System', items: CONTROL_NAV.slice(9) },
+  { section: 'Setup', items: CONTROL_NAV.slice(0, 4) },
+  { section: 'Money', items: CONTROL_NAV.slice(4, 10) },
+  { section: 'Access & System', items: CONTROL_NAV.slice(10) },
 ]
 
 
@@ -67,6 +68,7 @@ export const HUBS: Record<HubId, { label: string; icon: LucideIcon; to: string; 
   kitchen: {
     label: 'Kitchen Manager', icon: ChefHat, to: '/admin/kitchen', subtitle: 'Indents from outlets, stock in the central kitchen, and orders to vendors',
     items: [
+      { to: '/admin/kitchen/centre', label: 'Centre Kitchen', icon: ChefHat, module: 'indent', desc: 'Goods in and out, indents and stock' },
       { to: '/admin/kitchen/indents', label: 'Branch Indents', icon: ClipboardList, module: 'indent', desc: 'What outlets have asked for' },
       { to: '/admin/kitchen/storage', label: 'Storage / Stock', icon: Warehouse, module: 'indent', desc: 'What we have in the kitchen' },
       { to: '/admin/kitchen/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart, module: 'purchase', desc: 'Orders placed with vendors' },

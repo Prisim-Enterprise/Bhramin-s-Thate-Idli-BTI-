@@ -12,6 +12,7 @@ export default function ControlHome() {
 
   const summary: Record<string, string> = {
     '/control/restaurants': `${RESTAURANTS[0].name} · ${BRANCHES.length} locations`,
+    '/control/kitchen': 'Goods in and out of the Centre Kitchen, stock, indents, reorder levels',
     '/control/sales': inr(BRANCHES.reduce((s, b) => s + b.sales, 0)) + ' this month',
     '/control/expenses': `${EXPENSES.filter((e) => e.status === 'pending').length} awaiting approval`,
     '/control/ocr': 'Sarvam for handwritten · 10 a day',

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { CheckCircle2, FileImage, FileText, Upload, X } from 'lucide-react'
+import { CheckCircle2, FileImage, FileText, ScanLine, Upload, X } from 'lucide-react'
+import BillScanner from './BillScanner'
 import { Button, Field, inputCls } from './ui'
 import { BRANCHES, type BillScript } from '../data/mock'
 
@@ -29,6 +30,7 @@ export default function UploadBillDialog({ kind, onClose, onUpload }: {
   const [wrongType, setWrongType] = useState(false)
   const [split, setSplit] = useState(true) // a PDF of scanned bills: one bill per page
   const input = useRef<HTMLInputElement>(null)
+  const [scanning, setScanning] = useState(false)
 
   const pick = (f: File | null | undefined) => {
     if (!f) return
@@ -84,7 +86,6 @@ export default function UploadBillDialog({ kind, onClose, onUpload }: {
             <span className="mb-1 block text-xs font-medium text-slate-600">{handwritten ? 'Photo or scanned PDF' : 'PDF file'}</span>
             <input ref={input} id="upload-bill-file" type="file" hidden
               accept={handwritten ? 'image/*,application/pdf' : 'application/pdf,.pdf'}
-              capture={handwritten ? 'environment' : undefined}
               onChange={(e) => pick(e.target.files?.[0])} />
             <button type="button" onClick={() => input.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
@@ -99,6 +100,13 @@ export default function UploadBillDialog({ kind, onClose, onUpload }: {
                 </span>
               </span>
             </button>
+            {handwritten && (
+              <button type="button" onClick={() => setScanning(true)}
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#7a2228] bg-white px-4 py-2.5 text-sm font-semibold text-[#7a2228] hover:bg-[#fdf8ee]">
+                <ScanLine size={18} /> Scan with camera
+                <span className="font-normal text-slate-500">· takes the picture by itself</span>
+              </button>
+            )}
             {file && /pdf/i.test(file.type || file.name) && (
               <label className="mt-2 flex items-start gap-2 text-xs text-slate-600">
                 <input type="checkbox" className="mt-0.5" checked={split} onChange={(e) => setSplit(e.target.checked)} />
@@ -119,6 +127,7 @@ export default function UploadBillDialog({ kind, onClose, onUpload }: {
           <Button icon={Upload} disabled={!ready} onClick={() => ready && onUpload({ file, script, branch, split })}>Upload &amp; read bill</Button>
         </div>
       </div>
+      {scanning && <BillScanner onClose={() => setScanning(false)} onDone={(f) => { setScanning(false); pick(f) }} />}
     </div>
   )
 }
