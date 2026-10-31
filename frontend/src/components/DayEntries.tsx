@@ -27,6 +27,8 @@ export async function importImprest(file: File, by: string): Promise<Upload> {
   if (!r.ok) return { file: file.name, outcome: 'failed', text: r.reason }
   const e = r.entry
   const what = `${branchName(e.branch)} · ${niceDate(e.date)}`
+  // Never guess the branch: if the PDF doesn't say, open it so the branch can be picked.
+  if (!r.branchFound) return { file: file.name, outcome: 'check', entry: e, text: `${niceDate(e.date)}: couldn't tell which branch this Imprest Book is for. Pick the branch, then save.` }
   const dup = findDuplicate(e.branch, e.date)
   if (dup) return { file: file.name, outcome: 'duplicate', text: `${what} is already entered. Open it to compare, or Replace it with this PDF.`, entry: e, savedId: dup.id }
   if (r.balanced === false) {

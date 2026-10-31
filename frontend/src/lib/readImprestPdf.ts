@@ -7,7 +7,7 @@ import { blankEntry, guessType, type DayEntry } from '../data/entries'
 
 export type ReadResult =
   // printedClosing = closing balance printed in the PDF; balanced = our figures arrive at the same closing.
-  | { ok: true; entry: DayEntry; found: number; skipped: string[]; printedClosing: number | null; balanced: boolean | null }
+  | { ok: true; entry: DayEntry; found: number; skipped: string[]; printedClosing: number | null; balanced: boolean | null; branchFound: boolean }
   | { ok: false; reason: string }
 
 const MONTHS: Record<string, string> = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' }
@@ -66,7 +66,11 @@ export async function readImprestPdf(file: File): Promise<ReadResult> {
   let lines: string[]
   try {
     lines = await pdfLines(file)
-  } catch {
+  } catch (err) {
+    // After the dashboard is updated, a page left open asks for the old PDF reader file, which is gone.
+    if (/dynamically imported module|Importing a module script failed|Failed to fetch|ChunkLoadError|Unable to preload/i.test(String(err))) {
+      return { ok: false, reason: 'The dashboard was just updated. Press Ctrl+F5 to reload the page, then upload again.' }
+    }
     return { ok: false, reason: 'This file could not be opened as a PDF.' }
   }
   if (lines.join('').length < 20) {
@@ -84,12 +88,13 @@ export function parseImprestLines(lines: string[], fileName: string): ReadResult
   let printedClosing: number | null = null
   const skipped: string[] = []
 
+  let branchFound = false
   for (const line of lines) {
-    // Branch: "Chandra Layout - Imprest Book"
-    const title = line.match(/^(.+?)\s*-\s*Imprest\s+Book/i)
+    // Branch: "Chandra Layout - Imprest Book" or "Kodigehalli Imprest Book" (the dash isn't always there)
+    const title = line.match(/^(.+?)\s*[-–:]?\s*Imprest\s+Book/i)
     if (title) {
       const b = BRANCHES.find((x) => norm(x.name) === norm(title[1]))
-      if (b) e.branch = b.id
+      if (b) { e.branch = b.id; branchFound = true }
       continue
     }
     // Date: "For 24-Aug-26"
@@ -136,6 +141,12 @@ export function parseImprestLines(lines: string[], fileName: string): ReadResult
   }
 
   if (!found) return { ok: false, reason: "No Imprest Book lines were found in this PDF. Check it's the right file, or type the figures in." }
+  // No branch in the title: work it out from ledger names that carry it ("Swiggy-Kodigehalli", "Sales - Chandra Layout").
+  if (!branchFound) {
+    const text = norm(lines.join(' '))
+    const hits = BRANCHES.map((b) => ({ b, n: text.split(norm(b.name)).length - 1 })).filter((x) => x.n > 0).sort((a, z) => z.n - a.n)
+    if (hits.length && (hits.length === 1 || hits[0].n > hits[1].n)) { e.branch = hits[0].b.id; branchFound = true }
+  }
   // Adding decimals can leave tiny errors (787.2800000001); keep two places.
   const r2 = (n: number) => Math.round(n * 100) / 100
   for (const k of ['opening', 'sales', 'cgst', 'sgst', 'container', 'discount', 'roundOff', 'mobikwik', 'swiggy', 'zomato', 'rapido'] as const) e[k] = r2(e[k])
@@ -143,5 +154,5 @@ export function parseImprestLines(lines: string[], fileName: string): ReadResult
     - (e.mobikwik + e.swiggy + e.zomato + e.rapido) - e.payouts.reduce((s, p) => s + p.amount, 0))
   // The Dr/Cr word printed before "Closing Balance" varies between Tally layouts, so compare the amount.
   const balanced = printedClosing == null ? null : Math.abs(Math.abs(ours) - printedClosing) < 1
-  return { ok: true, entry: e, found, skipped, printedClosing, balanced }
+  return { ok: true, entry: e, found, skipped, printedClosing, balanced, branchFound }
 }
