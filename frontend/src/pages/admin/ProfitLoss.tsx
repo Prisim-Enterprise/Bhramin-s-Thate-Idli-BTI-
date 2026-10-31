@@ -5,12 +5,14 @@ import { Card } from '../../components/ui'
 import { Big, EmptyReport, ReportHeader, ScopePicker, Summary, Tile, downloadCsv, money, per100 } from '../../components/report'
 import { AddEntryButtons } from '../../components/DayEntries'
 import { BalanceSheet, ExpensesTab, IncomeReport, TrialBalance } from '../../components/FinalAccounts'
+import MisReport from '../../components/MisReport'
 import { useApp } from '../../context/AppContext'
 import { BRANCHES, branchName } from '../../data/mock'
 import { FOOD_COST_TARGET, byBranch, daily, monthName, profitLoss, useReportData } from '../../data/analytics'
 
 // Profit & Loss = Income − Expenses. Balance Sheet = Assets and Liabilities. Trial Balance = every ledger, both together.
 const TABS = [
+  { id: 'mis', label: 'MIS Format' },
   { id: 'pnl', label: 'Profit & Loss' },
   { id: 'income', label: 'Income' },
   { id: 'expenses', label: 'Expenses' },
@@ -24,7 +26,7 @@ const pct = (n: number, of: number) => (of ? ((n / of) * 100).toFixed(1) + '%' :
 export default function ProfitLoss() {
   const { can } = useApp()
   const R = useReportData()
-  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('pnl')
+  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('mis')
   const p = profitLoss(R.d, R.scope)
   const branches = R.branch ? [] : byBranch(R.d, R.scope).sort((a, b) => b.p.net - a.p.net)
   const trend = daily(R.d, R.scope)
@@ -71,7 +73,8 @@ export default function ProfitLoss() {
             className={`shrink-0 rounded-lg px-4 py-2 text-sm font-semibold ${tab === t.id ? 'bg-[#7a2228] text-white' : 'text-slate-600 hover:bg-[#fbf3e4]'}`}>{t.label}</button>
         ))}
       </div>
-      {tab === 'income' ? <IncomeReport d={R.d} scope={R.scope} />
+      {tab === 'mis' ? <MisReport d={R.d} scope={R.scope} />
+        : tab === 'income' ? <IncomeReport d={R.d} scope={R.scope} />
         : tab === 'expenses' ? <ExpensesTab d={R.d} scope={R.scope} />
         : tab === 'bs' ? <BalanceSheet d={R.d} scope={R.scope} />
         : tab === 'tb' ? <TrialBalance d={R.d} scope={R.scope} />

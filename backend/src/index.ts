@@ -174,6 +174,26 @@ async function handle(req: Request, env: Env): Promise<Response> {
     return json({ error: 'Not allowed' }, 405)
   }
 
+  // GET /api/settings/mis -> where each ledger goes in the MIS Profit & Loss (everyone reads it)
+  // PUT /api/settings/mis {ledgerKey: heading} (admins only)
+  if (parts[1] === 'settings' && parts[2] === 'mis') {
+    const HEADS = ['food', 'rent', 'salaries', 'utilities', 'fixed', 'variable']
+    if (req.method === 'GET') {
+      const row = await setting(env, 'mis')
+      return json({ map: row ? JSON.parse(row.value) : {}, at: row?.updated_at ?? null, by: row?.updated_by ?? null })
+    }
+    if (req.method === 'PUT') {
+      if (!isAdmin) return json({ error: 'Only admins can change the MIS layout.' }, 403)
+      const input = (await req.json()) as Record<string, unknown>
+      const map: Record<string, string> = {}
+      for (const [k, v] of Object.entries(input ?? {}).slice(0, 500)) if (typeof v === 'string' && HEADS.includes(v)) map[k.slice(0, 120)] = v
+      await saveSetting(env, 'mis', map, user.email)
+      await audit(env, user.email, 'mis-layout', 'settings', 'mis')
+      return json({ map })
+    }
+    return json({ error: 'Not allowed' }, 405)
+  }
+
   // Logins (admins only): GET /api/users, POST /api/users, PATCH /api/users/:id
   if (parts[1] === 'users') {
     if (!isAdmin) return json({ error: 'Only admins can manage logins.' }, 403)

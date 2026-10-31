@@ -133,3 +133,11 @@ export async function apiHealth(): Promise<boolean> {
 export async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
   return (await fetch(dataUrl)).blob()
 }
+
+/** Where each ledger goes in the MIS Profit & Loss (ledgerKey -> heading). */
+export async function getMisLayout(): Promise<{ map: Record<string, string>; at: string | null; by: string | null }> {
+  return (await call('/api/settings/mis')).json() as Promise<{ map: Record<string, string>; at: string | null; by: string | null }>
+}
+export async function putMisLayout(map: Record<string, string>): Promise<{ map: Record<string, string> }> {
+  return (await call('/api/settings/mis', sendJson('PUT', map))).json() as Promise<{ map: Record<string, string> }>
+}
