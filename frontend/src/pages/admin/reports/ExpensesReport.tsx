@@ -23,9 +23,40 @@ export default function ExpensesReport() {
   const upload = <AddEntryButtons disabled={!can('accounts', 'create')} />
 
   if (!lines.length) {
-    return <EmptyReport title="Expenses Report" period={R.hasData ? `${R.label} · no expenses yet` : 'Worked out from Imprest Books and bills'} icon={Receipt}
+    // Point to the months that do have expenses, so nobody is left looking at an empty page.
+    const other = R.months.filter((m) => m !== R.month)
+      .map((m) => { const q = profitLoss(R.d, { month: m, branch: R.scope.branch }); return { m, v: q.running + q.staff, n: q.lines.filter((l) => l.type !== 'purchase').length } })
+      .filter((x) => x.n)
+    const total = other.reduce((s, x) => s + x.v, 0)
+    return <EmptyReport title="Expenses Report" period={R.hasData ? `${R.label} · ${R.branch ? branchName(R.branch) + ' · ' : ''}no expenses yet` : 'Worked out from Imprest Books and bills'} icon={Receipt}
       actions={<>{R.hasData && picker}{upload}</>}
-      text="Expenses paid out of branch cash (Imprest Book) and expense bills posted from the OCR Bill Inbox (gas, cleaning, repairs, conveyance…) show up here automatically." />
+      text="Expenses paid out of branch cash (Imprest Book) and expense bills posted from the OCR Bill Inbox (gas, cleaning, repairs, conveyance…) show up here automatically.">
+      {other.length > 0 && (
+        <Card title={`Expenses are in ${other.length === 1 ? 'this month' : 'these months'}${R.branch ? ` (${branchName(R.branch)})` : ''}`} pad={false}>
+          <ul className="divide-y divide-slate-100">
+            {other.map((x) => (
+              <li key={x.m} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+                <span><span className="block font-medium text-slate-900">{monthName(x.m)}</span>
+                  <span className="block text-xs text-slate-500">{x.n} payment line(s)</span></span>
+                <span className="flex items-center gap-3">
+                  <b className="tabular-nums">{money(x.v)}</b>
+                  <button onClick={() => R.setMonth(x.m)} className="rounded-lg bg-[#7a2228] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#651b20]">Show</button>
+                </span>
+              </li>
+            ))}
+            {other.length > 1 && (
+              <li className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <span className="text-slate-500">All of them together</span>
+                <span className="flex items-center gap-3">
+                  <b className="tabular-nums">{money(total)}</b>
+                  <button onClick={() => R.setMonth('')} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">Show all months</button>
+                </span>
+              </li>
+            )}
+          </ul>
+        </Card>
+      )}
+    </EmptyReport>
   }
 
   const csv = () => downloadCsv(`BTI-Expenses-${R.month || 'all'}.csv`, [

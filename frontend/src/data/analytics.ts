@@ -46,6 +46,10 @@ function spelling(d: Data) {
   return (n: string) => name.get(ledgerKey(n)) ?? n
 }
 
+/** Freight, hamali and other transport inward are part of what ingredients cost (as in the MIS format). */
+export const isTransportInward = (ledger: string) => /freight|hamali|transport inward|cartage|loading|unloading/i.test(ledger)
+const asPurchase = <T extends string>(ledger: string, type: T): T | 'purchase' => (type === 'expense' && isTransportInward(ledger) ? 'purchase' : type)
+
 /** Expense, purchase and salary lines from day entries and Account Books. */
 export function moneyLines(d: Data, s: Scope = {}): MoneyLine[] {
   const same = spelling(d)
@@ -55,10 +59,11 @@ export function moneyLines(d: Data, s: Scope = {}): MoneyLine[] {
   const billOf = new Map(d.bills.map((b) => [b.id, b]))
   return [
     ...entries.flatMap((e) => e.payouts.filter((p) => p.amount).map((p, i) => ({
-      key: `${e.id}:${i}`, date: e.date, branch: e.branch, ledger: same(p.ledger), amount: p.amount, type: p.type, from: 'Day entry' as const,
+      key: `${e.id}:${i}`, date: e.date, branch: e.branch, ledger: same(p.ledger), amount: p.amount, type: asPurchase(p.ledger, p.type), from: 'Day entry' as const,
     }))),
     ...manual.flatMap((m) => debitLines(m, imprestLedger).flatMap((l, i) => {
-      const type = reportOf(groupOf(l.ledger, d.custom))
+      const kind = reportOf(groupOf(l.ledger, d.custom))
+      const type = kind && asPurchase(l.ledger, kind)
       if (!type || !l.dr) return []
       const bill = m.billId ? billOf.get(m.billId) : undefined
       return [{

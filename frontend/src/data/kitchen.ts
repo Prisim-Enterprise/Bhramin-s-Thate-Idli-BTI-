@@ -2,6 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { cloudStore } from './cloudStore'
 import { itemKey, useClosingCounts, usePostedBills, type ClosingCount } from './inventory'
 import type { Bill } from './mock'
+import { isTransportInward } from './analytics'
 import { API_ON, getCkSettings, putCkSettings, type CkItemSetting } from '../lib/api'
 
 // Centre Kitchen (branch CK): everything that comes in and goes out.
@@ -101,7 +102,9 @@ export function ckFlows(bills: Bill[], all: StockMove[]): CkFlow[] {
   const out: CkFlow[] = []
   for (const b of bills) {
     if (b.branch !== CK) continue
-    const lines = b.lines.filter((l) => l.item.trim() && l.qty > 0).map((l) => ({ item: l.item, unit: l.unit, qty: l.qty, rate: l.rate }))
+    // Freight / hamali lines are charges, not goods: they don't go into stock.
+    const lines = b.lines.filter((l) => l.item.trim() && l.qty > 0 && !isTransportInward(l.ledger ?? '') && !isTransportInward(l.item))
+      .map((l) => ({ item: l.item, unit: l.unit, qty: l.qty, rate: l.rate }))
     out.push({ key: 'bill:' + b.id, date: b.date, kind: 'in', party: b.vendor || 'Vendor', lines, value: r2(lines.reduce((s, l) => s + l.qty * l.rate, 0)),
       source: 'Bill', ref: b.id, by: b.uploadedBy, at: b.uploadedAt ?? '', note: b.invoiceNo ? `Bill no. ${b.invoiceNo}` : '' })
   }

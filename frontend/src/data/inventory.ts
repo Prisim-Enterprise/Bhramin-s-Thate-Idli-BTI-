@@ -3,6 +3,7 @@ import { cloudStore } from './cloudStore'
 import { STOCK, type Bill } from './mock'
 import { useBills } from './billStore'
 import { useManualVouchers } from './ledgerStore'
+import { isTransportInward } from './analytics'
 
 // Closing stock counted at each outlet at the end of a day, and the stock figures worked out from it:
 // opening (last count before the period) + bought (posted bills) − closing (last count in the period) = used.
@@ -43,7 +44,7 @@ export function rawMaterials(posted: Bill[], all: ClosingCount[]): { item: strin
   const m = new Map<string, { item: string; unit: string }>()
   const add = (item: string, unit: string) => { if (item.trim() && !m.has(itemKey(item, unit))) m.set(itemKey(item, unit), { item: item.trim(), unit: unit || 'nos' }) }
   STOCK.forEach((s) => add(s.item, s.unit))
-  posted.forEach((b) => b.lines.forEach((l) => add(l.item, l.unit)))
+  posted.forEach((b) => b.lines.forEach((l) => { if (!isTransportInward(l.ledger ?? '') && !isTransportInward(l.item)) add(l.item, l.unit) }))
   all.forEach((c) => c.lines.forEach((l) => add(l.item, l.unit)))
   return [...m.values()].sort((a, b) => a.item.localeCompare(b.item))
 }
@@ -69,7 +70,7 @@ export function stockSummary(posted: Bill[], all: ClosingCount[], from: string, 
   for (const b of posted) {
     if ((branch && b.branch !== branch) || b.date < from || b.date > to) continue
     for (const l of b.lines) {
-      if (!l.item.trim()) continue
+      if (!l.item.trim() || isTransportInward(l.ledger ?? '') || isTransportInward(l.item)) continue // charges, not goods
       const r = row(l.item, l.unit)
       r.bought = r2(r.bought + l.qty)
       r.boughtValue = Math.round((r.boughtValue + l.qty * l.rate) * 100) / 100

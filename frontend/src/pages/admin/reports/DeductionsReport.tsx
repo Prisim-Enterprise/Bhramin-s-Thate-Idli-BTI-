@@ -13,7 +13,8 @@ function BookDeductions({ R }: { R: ReturnType<typeof useReportData> }) {
   const p = profitLoss(R.d, R.scope)
   const entries = inMonth(R.d.entries, R.scope.month).filter((e) => !R.scope.branch || e.branch === R.scope.branch)
   const discounts = entries.filter((e) => e.discount).sort((a, b) => b.date.localeCompare(a.date))
-  const staffLines = p.lines.filter((l) => l.type === 'salary' || /staff|lunch|advance|wages|salary/i.test(l.ledger))
+  // Money paid to or for staff: salaries and advances, wages, staff food. Not rent for the staff room (that's rent).
+  const staffLines = p.lines.filter((l) => l.type === 'salary' || (/lunch|staff (food|welfare|meal)|advance|wages|salary|bonus/i.test(l.ledger) && !/\brent\b/i.test(l.ledger)))
   const staffTotal = staffLines.reduce((s, l) => s + l.amount, 0)
   const apps = p.sales.swiggy + p.sales.zomato
   if (!entries.length && !staffLines.length) return null
