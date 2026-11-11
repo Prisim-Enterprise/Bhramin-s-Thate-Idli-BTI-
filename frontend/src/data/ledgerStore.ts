@@ -109,7 +109,7 @@ export function groupOf(name: string, custom: CustomLedger[]): GroupId {
   if (/bank|o\/d a\/c|\bod a\/c/i.test(name)) return 'bank'
   if (/^(mobikwik|swiggy|zomato|rapido)/i.test(name)) return 'debtors'
   if (/^sales/i.test(name)) return 'sales'
-  if (/(output|input) (c|s|i)gst/i.test(name)) return 'duties'
+  if (/(output|input) (c|s|i)?gst/i.test(name)) return 'duties'
   if (/^round off$/i.test(name)) return 'indirectInc'
   if (/traders|suppliers|enterprises|agencies|stores/i.test(name)) return 'creditors'
   return ({ expense: 'indirectExp', purchase: 'purchase', salary: 'liabilities' } as const)[guessType(name)]

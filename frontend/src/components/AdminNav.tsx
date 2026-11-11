@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   Boxes, Briefcase, Calculator, ChefHat, ChevronDown, ChevronRight, Clock, ClipboardCheck, Contact, FileBarChart, Globe, LayoutDashboard,
   LayoutGrid, ListChecks, Wallet, Megaphone, PackageSearch, Receipt, Store, UtensilsCrossed, type LucideIcon,
+  PackageCheck,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { ModuleId } from '../data/mock'
@@ -35,6 +36,7 @@ export const adminSidebar = (): SideEntry[] => (cached ??= [
   { kind: 'group', label: 'Kitchen Manager', icon: ChefHat, items: hubItems('kitchen', 'Kitchen overview') },
   { kind: 'link', to: '/admin/menu', label: 'Menu', icon: UtensilsCrossed, module: 'sales' },
   { kind: 'group', label: 'Inventory', icon: Boxes, items: [
+    { to: '/admin/inventory/items', label: 'Inventory Items', icon: PackageCheck, module: 'indent', anyOf: ['indent', 'purchase'] },
     { to: '/admin/inventory/stock', label: 'Stock Summary', icon: PackageSearch, module: 'indent', anyOf: ['indent', 'purchase'] },
     { to: '/admin/inventory/closing', label: 'Closing Stock Tracker', icon: ListChecks, module: 'indent', anyOf: ['indent', 'purchase'] },
     { to: '/admin/inventory/po-approval', label: 'Purchase Order Approval', icon: ClipboardCheck, module: 'purchase' },

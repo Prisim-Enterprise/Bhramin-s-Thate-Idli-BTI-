@@ -68,6 +68,23 @@ export async function readBillOnline(file: Blob, name: string, pages = 1): Promi
   return res.json() as Promise<{ bill: SarvamBill } & Usage>
 }
 
+export type SarvamStatement = {
+  partner?: string | null; outlet?: string | null; period_from?: string | null; period_to?: string | null
+  gross_sales?: number | null; commission?: number | null; advertisement?: number | null; payment_gateway?: number | null
+  gst_on_charges?: number | null; tds_tcs?: number | null; other_charges?: { label?: string | null; amount?: number | null }[] | null
+  net_payout?: number | null; utr?: string | null
+}
+
+/** Read a scanned weekly payout statement with Sarvam on the server. Shares the daily reading limit with bills. */
+export async function readStatementOnline(file: Blob, name: string, pages = 1): Promise<{ statement: SarvamStatement } & Usage> {
+  const res = await call('/api/read-statement', {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/pdf', 'X-File-Name': encodeURIComponent(name), 'X-Pages': String(pages) },
+    body: file,
+  })
+  return res.json() as Promise<{ statement: SarvamStatement } & Usage>
+}
+
 /** Handwritten bills read today (whole company) and the daily limit. */
 export async function readUsage(): Promise<Usage> {
   return (await call('/api/read-bill/usage')).json() as Promise<Usage>

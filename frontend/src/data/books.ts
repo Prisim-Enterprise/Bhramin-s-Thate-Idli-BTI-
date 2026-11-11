@@ -68,8 +68,7 @@ export function buildVouchers(entries: DayEntry[], manual: ManualVoucher[] = [],
       dr('Discount (Settlement)', 'indirectExp', e.discount),
       cash >= 0 ? dr(imp, 'cash', cash) : cr(imp, 'cash', -cash),
       cr(`Sales - ${b}`, 'sales', e.sales),
-      cr('Output CGST @ 2.5%', 'duties', e.cgst),
-      cr('Output SGST @ 2.5%', 'duties', e.sgst),
+      cr('Output GST @ 5%', 'duties', Math.round((e.cgst + e.sgst) * 100) / 100), // CGST + SGST shown as one GST
       cr('Container Charges', 'indirectInc', e.container),
       e.roundOff >= 0 ? cr('Round Off', 'indirectInc', e.roundOff) : dr('Round Off', 'indirectInc', -e.roundOff),
     ].filter((p) => p.dr || p.cr)

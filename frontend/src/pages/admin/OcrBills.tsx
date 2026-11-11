@@ -23,6 +23,9 @@ const isHandwritten = (b: Bill) => b.script === 'en-hand' || b.script === 'kn-ha
 const MAX_SAVED_FILE = 1024 * 1024 // without the cloud, files above 1 MB are not kept
 const EXTRA_LEDGERS = ['Gas Expenses', 'Cleaning Expenses', 'Repairs & Maintenance', 'Fruits Purchased']
 const r2 = (n: number) => Math.round(n * 100) / 100
+/** Fields the reader couldn't read are left empty and show an amber N/A. */
+const naCls = ' placeholder:font-medium placeholder:text-amber-600'
+const without = (l: BillLine, k: 'qty' | 'rate') => { const u = l.unread?.filter((x) => x !== k); return u?.length ? u : undefined }
 
 /** A link the page can show for a stored bill image (from R2 or from this browser). */
 function useFileUrl(f: Bill['file']) {
@@ -44,21 +47,22 @@ function useFileUrl(f: Bill['file']) {
 }
 
 /** Fill a bill from what the reader found. */
-function fromRead(base: Bill, r: ReadOutcome, fallbackDate: string): Bill {
-  const vendor = r.vendor || base.vendor
-  const lines: BillLine[] = r.lines.map(({ item, qty, unit, rate, gst, ledger }, i) => ({
-    item, qty, unit, rate, gst, ledger, original: r.originals?.[i] ?? undefined, unsure: r.unsure?.[i] || undefined,
+/** `again`: on "Read again", what was already typed stays when it still can't be read. Otherwise unread = empty (N/A). */
+function fromRead(base: Bill, r: ReadOutcome, again = false): Bill {
+  const vendor = r.vendor || (again ? base.vendor : '')
+  const lines: BillLine[] = r.lines.map(({ item, qty, unit, rate, gst, ledger, unread }, i) => ({
+    item, qty, unit, rate, gst, ledger, unread, original: r.originals?.[i] ?? undefined, unsure: r.unsure?.[i] || undefined,
   }))
   // Total found but no item rows: keep the whole bill as one line so nothing is lost.
   if (!lines.length && r.total) {
-    lines.push({ item: 'Bill total (split into items if needed)', qty: 1, unit: 'nos', rate: r2(r.total - (r.cgst ?? 0) - (r.sgst ?? 0) - (r.igst ?? 0)), gst: 0, ledger: ledgerFor('', vendor) })
+    lines.push({ item: 'Bill total (split into items if needed)', qty: 1, unit: '', rate: r2(r.total - (r.cgst ?? 0) - (r.sgst ?? 0) - (r.igst ?? 0)), gst: 0, ledger: ledgerFor('', vendor), unread: ['qty', 'rate'] })
   }
   const found = r.textFound
     ? ` Found ${r.lines.length} item${r.lines.length === 1 ? '' : 's'}${r.total ? `, bill total ${inr(r.total)}` : ''}.` +
       (r.skipped.length ? ` ${r.skipped.length} line${r.skipped.length === 1 ? '' : 's'} could not be read: “${r.skipped.slice(0, 3).join('”, “')}”.` : '')
     : ''
   return {
-    ...base, vendor, date: r.date || fallbackDate, invoiceNo: r.invoiceNo ?? base.invoiceNo, lines,
+    ...base, vendor, date: r.date || (again ? base.date : ''), invoiceNo: r.invoiceNo || (again ? base.invoiceNo : undefined), lines,
     cgst: r.cgst, sgst: r.sgst, igst: r.igst || undefined, billTotal: r.total, readNote: r.note + found,
     status: 'extracted', confidence: r.method === 'none' ? 0 : r.confidence,
   }
@@ -162,7 +166,7 @@ export default function OcrBills() {
       r = await readBillFile(file, base.script, (t) => setSteps((m) => ({ ...m, [id]: t })))
     }
     setSteps((m) => { const n = { ...m }; delete n[id]; return n })
-    save(withMemory(fromRead(base, r, base.date), r))
+    save(withMemory(fromRead(base, r), r))
     refreshUsage()
   }
 
@@ -243,7 +247,7 @@ export default function OcrBills() {
     setSteps((m) => ({ ...m, [b.id]: 'Reading the bill…' }))
     try {
       const r = await readBillFile(await fileOf(b), b.script, (t) => setSteps((m) => ({ ...m, [b.id]: t })))
-      saveBill(withMemory(fromRead({ ...b, status: 'processing' }, r, b.date), r))
+      saveBill(withMemory(fromRead({ ...b, status: 'processing' }, r, true), r))
     } catch (e) {
       setMessage({ tone: 'error', text: `Reading failed: ${e instanceof Error ? e.message : String(e)}` })
     } finally {
@@ -335,7 +339,7 @@ export default function OcrBills() {
                       {isPosted(b) ? 'posted' : b.status === 'processing' ? 'reading' : 'to check'}
                     </Badge>
                   </div>
-                  <p className="mt-0.5 truncate text-sm text-slate-600">{b.vendor}</p>
+                  <p className="mt-0.5 truncate text-sm text-slate-600">{b.vendor || <span className="font-medium text-amber-600">N/A</span>}</p>
                   <p className="text-xs text-slate-400">{branchName(b.branch)} · {inr(billSums(b).total)}</p>
                   <p className="text-xs text-slate-400">Uploaded by {b.uploadedBy}{b.uploadedAt && <> · {fmtDateTime(b.uploadedAt)}</>}</p>
                 </button>
@@ -425,7 +429,7 @@ export default function OcrBills() {
 
                   <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <label className="text-xs text-slate-500">Vendor
-                      <input list="bill-vendors" className={inputCls + ' mt-1'} value={sel.vendor} disabled={locked}
+                      <input list="bill-vendors" className={inputCls + ' mt-1' + naCls} placeholder="N/A" value={sel.vendor} disabled={locked}
                         onChange={(e) => {
                           const v = e.target.value
                           const empty = !sel.lines.some((l) => l.qty > 0 && l.rate > 0)
@@ -438,8 +442,8 @@ export default function OcrBills() {
                         {BRANCHES.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                       </select>
                     </label>
-                    <label className="text-xs text-slate-500">Invoice no.<input className={inputCls + ' mt-1'} value={sel.invoiceNo ?? ''} disabled={locked} onChange={(e) => update({ invoiceNo: e.target.value })} /></label>
-                    <label className="text-xs text-slate-500">Bill date<input type="date" className={inputCls + ' mt-1'} value={sel.date} disabled={locked} onChange={(e) => update({ date: e.target.value })} /></label>
+                    <label className="text-xs text-slate-500">Invoice no.<input className={inputCls + ' mt-1' + naCls} placeholder="N/A" value={sel.invoiceNo ?? ''} disabled={locked} onChange={(e) => update({ invoiceNo: e.target.value })} /></label>
+                    <label className="text-xs text-slate-500">Bill date{!sel.date && <span className="ml-1 font-medium text-amber-600">N/A, not read</span>}<input type="date" className={inputCls + ' mt-1'} value={sel.date} disabled={locked} onChange={(e) => update({ date: e.target.value })} /></label>
                     <label className="text-xs text-slate-500">How it's paid
                       <select aria-label="How it's paid" className={inputCls + ' mt-1'} value={sel.type} disabled={locked} onChange={(e) => update({ type: e.target.value as Bill['type'] })}>
                         <option value="credit">On credit (owed to vendor)</option>
@@ -460,7 +464,7 @@ export default function OcrBills() {
                         {sel.lines.map((l, i) => (
                           <tr key={i} className="border-t border-slate-100">
                             <td className="min-w-[150px] py-1.5 pr-2">
-                              <input list="bill-items" aria-label="Item" className={inputCls + ' !py-1'} value={l.item} disabled={locked}
+                              <input list="bill-items" aria-label="Item" className={inputCls + ' !py-1' + naCls} placeholder="N/A" value={l.item} disabled={locked}
                                 onChange={(e) => {
                                   const known = itemMemory.get(e.target.value.trim().toLowerCase())
                                   updateLine(i, known && !l.rate
@@ -474,15 +478,20 @@ export default function OcrBills() {
                               <input list="bill-ledgers" aria-label="Ledger" className={inputCls + ' !py-1'} value={l.ledger ?? ''} disabled={locked}
                                 placeholder={ledgerFor(l.item, sel.vendor)} onChange={(e) => updateLine(i, { ledger: e.target.value })} />
                             </td>
-                            <td className="pr-2"><input type="number" aria-label="Quantity" className={inputCls + ' !w-20 !py-1'} value={l.qty} disabled={locked} onChange={(e) => updateLine(i, { qty: +e.target.value })} /></td>
-                            <td className="pr-2"><input aria-label="Unit" className={inputCls + ' !w-16 !py-1'} value={l.unit} disabled={locked} onChange={(e) => updateLine(i, { unit: e.target.value })} /></td>
-                            <td className="pr-2"><input type="number" aria-label="Rate" className={inputCls + ' !w-24 !py-1'} value={l.rate} disabled={locked} onChange={(e) => updateLine(i, { rate: +e.target.value })} /></td>
+                            <td className="pr-2"><input type="number" aria-label="Quantity" className={inputCls + ' !w-20 !py-1' + naCls} placeholder="N/A" value={l.unread?.includes('qty') ? '' : l.qty} disabled={locked} onChange={(e) => {
+                              const q = +e.target.value
+                              // Only an amount was read (qty and rate N/A): keep the amount and work the rate out from it.
+                              if (l.unread?.includes('rate') && l.unread.includes('qty') && q > 0) updateLine(i, { qty: q, rate: Math.round((l.qty * l.rate / q) * 10000) / 10000, unread: undefined })
+                              else updateLine(i, { qty: q, unread: without(l, 'qty') })
+                            }} /></td>
+                            <td className="pr-2"><input aria-label="Unit" className={inputCls + ' !w-16 !py-1' + naCls} placeholder="N/A" value={l.unit} disabled={locked} onChange={(e) => updateLine(i, { unit: e.target.value })} /></td>
+                            <td className="pr-2"><input type="number" aria-label="Rate" className={inputCls + ' !w-24 !py-1' + naCls} placeholder="N/A" value={l.unread?.includes('rate') ? '' : l.rate} disabled={locked} onChange={(e) => updateLine(i, { rate: +e.target.value, unread: without(l, 'rate') })} /></td>
                             <td className="pr-2"><input type="number" aria-label="GST percent" className={inputCls + ' !w-16 !py-1'} value={l.gst} disabled={locked} onChange={(e) => updateLine(i, { gst: +e.target.value })} /></td>
                             <td className="text-right">
                               <input type="number" step="0.01" aria-label="Amount" title="Type the amount from the bill; the rate is worked out"
                                 className={inputCls + ' !w-28 !py-1 text-right'} disabled={locked}
                                 value={Math.round((lineBase(l) + lineGst(l)) * 100) / 100}
-                                onChange={(e) => { const amt = +e.target.value; const q = l.qty || 1; updateLine(i, { qty: q, rate: Math.round((amt / q / (1 + l.gst / 100)) * 10000) / 10000 }) }} />
+                                onChange={(e) => { const amt = +e.target.value; const q = l.qty || 1; updateLine(i, { qty: q, rate: Math.round((amt / q / (1 + l.gst / 100)) * 10000) / 10000, unread: without(l, 'rate') }) }} />
                             </td>
                             <td className="pl-2">{!locked && <button className="text-slate-400 hover:text-rose-600" aria-label="Remove line" onClick={() => update({ lines: sel.lines.filter((_, j) => j !== i) })}><Trash2 size={14} /></button>}</td>
                           </tr>
@@ -506,14 +515,18 @@ export default function OcrBills() {
                   <div className="mt-4 grid grid-cols-1 gap-6 border-t border-slate-100 pt-4 lg:grid-cols-2">
                     <dl className="grid grid-cols-[1fr_auto] items-center gap-x-6 gap-y-1.5 text-sm">
                       <dt className="text-slate-500">Items (before tax)</dt><dd className="text-right tabular-nums">{inr(sums.subtotal)}</dd>
-                      <dt className="text-slate-500">CGST</dt><dd className="text-right">{taxInput('cgst', sums.cgst)}</dd>
-                      <dt className="text-slate-500">SGST</dt><dd className="text-right">{taxInput('sgst', sums.sgst)}</dd>
+                      <dt className="text-slate-500">Total GST</dt>
+                      <dd className="text-right">
+                        {/* One GST figure; kept as equal CGST + SGST halves underneath. */}
+                        <input type="number" step="0.01" aria-label="Total GST" className={inputCls + ' !w-28 !py-1 text-right'} value={r2(sums.cgst + sums.sgst)} disabled={locked}
+                          onChange={(e) => { if (e.target.value === '') return update({ cgst: undefined, sgst: undefined }); const g = +e.target.value; const half = r2(g / 2); update({ cgst: half, sgst: r2(g - half) }) }} />
+                      </dd>
                       {(sums.igst > 0 || sel.igst != null) && <><dt className="text-slate-500">IGST</dt><dd className="text-right">{taxInput('igst', sums.igst)}</dd></>}
                       {sums.roundOff !== 0 && <><dt className="text-slate-500">Round off</dt><dd className="text-right tabular-nums">{inr(sums.roundOff)}</dd></>}
                       <dt className="font-semibold">Total</dt><dd className="text-right font-semibold tabular-nums">{inr(sums.total)}</dd>
                       <dt className="text-slate-500">Total printed on bill</dt>
                       <dd className="text-right">
-                        <input type="number" step="0.01" aria-label="Total printed on bill" className={inputCls + ' !w-28 !py-1 text-right'} value={sel.billTotal ?? ''} disabled={locked}
+                        <input type="number" step="0.01" aria-label="Total printed on bill" className={inputCls + ' !w-28 !py-1 text-right' + naCls} placeholder="N/A" value={sel.billTotal ?? ''} disabled={locked}
                           onChange={(e) => update({ billTotal: e.target.value === '' ? undefined : +e.target.value })} />
                       </dd>
                     </dl>

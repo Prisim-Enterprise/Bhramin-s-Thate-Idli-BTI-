@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { cloudStore } from './cloudStore'
 import { itemKey, useClosingCounts, usePostedBills, type ClosingCount } from './inventory'
-import type { Bill } from './mock'
+import { BRANCHES, type Bill } from './mock'
 import { isTransportInward } from './analytics'
 import { API_ON, getCkSettings, putCkSettings, type CkItemSetting } from '../lib/api'
 
@@ -98,10 +98,17 @@ export type CkFlow = {
 }
 
 /** Every movement in and out of the Centre Kitchen, newest first. */
-export function ckFlows(bills: Bill[], all: StockMove[]): CkFlow[] {
+export const ckFlows = (bills: Bill[], all: StockMove[]) => branchFlows(CK, bills, all)
+
+/**
+ * Goods in and out of one location, newest first.
+ *  - Centre Kitchen: its posted bills + goods received (in), goods issued to outlets (out).
+ *  - An outlet: its own posted bills + what the Centre Kitchen sent it (in). What it uses shows up at its next closing count.
+ */
+export function branchFlows(branch: string, bills: Bill[], all: StockMove[]): CkFlow[] {
   const out: CkFlow[] = []
   for (const b of bills) {
-    if (b.branch !== CK) continue
+    if (b.branch !== branch) continue
     // Freight / hamali lines are charges, not goods: they don't go into stock.
     const lines = b.lines.filter((l) => l.item.trim() && l.qty > 0 && !isTransportInward(l.ledger ?? '') && !isTransportInward(l.item))
       .map((l) => ({ item: l.item, unit: l.unit, qty: l.qty, rate: l.rate }))
@@ -109,6 +116,13 @@ export function ckFlows(bills: Bill[], all: StockMove[]): CkFlow[] {
       source: 'Bill', ref: b.id, by: b.uploadedBy, at: b.uploadedAt ?? '', note: b.invoiceNo ? `Bill no. ${b.invoiceNo}` : '' })
   }
   for (const m of all) {
+    if (branch !== CK) {
+      // An outlet receives what the Centre Kitchen issued to it.
+      if (m.kind !== 'out' || m.to !== branch) continue
+      out.push({ key: 'recv:' + m.id, date: m.date, kind: 'in', party: 'Centre Kitchen', lines: m.lines, value: r2(m.lines.reduce((s, l) => s + l.qty * l.rate, 0)),
+        source: 'Received', ref: m.id, by: m.addedBy, at: m.addedAt, note: m.note, indentId: m.indentId })
+      continue
+    }
     out.push({ key: m.id, date: m.date, kind: m.kind, party: m.kind === 'in' ? (m.from || 'Received') : (m.to ?? ''), lines: m.lines,
       value: r2(m.lines.reduce((s, l) => s + l.qty * l.rate, 0)), source: m.kind === 'in' ? 'Received' : 'Issued', ref: m.id,
       by: m.addedBy, at: m.addedAt, note: m.note, indentId: m.indentId, moveId: m.id })
@@ -116,20 +130,20 @@ export function ckFlows(bills: Bill[], all: StockMove[]): CkFlow[] {
   return out.sort((a, b) => b.date.localeCompare(a.date) || (b.at || '').localeCompare(a.at || ''))
 }
 
-export type StockItem = { key: string; item: string; unit: string; counted: number | null; countedOn: string | null; inQty: number; outQty: number; onHand: number; rate: number; value: number }
+export type StockItem = { key: string; item: string; unit: string; counted: number | null; countedOn: string | null; inQty: number; outQty: number; onHand: number; rate: number; value: number; lastIn: number /* size of the latest delivery */ }
 
-/** What the Centre Kitchen holds now, item by item. */
-export function ckStock(flows: CkFlow[], counts: ClosingCount[]): StockItem[] {
-  const last = counts.filter((c) => c.branch === CK).sort((a, b) => b.date.localeCompare(a.date))[0]
+/** What a location (the Centre Kitchen by default) holds now, item by item. */
+export function ckStock(flows: CkFlow[], counts: ClosingCount[], branch = CK): StockItem[] {
+  const last = counts.filter((c) => c.branch === branch).sort((a, b) => b.date.localeCompare(a.date))[0]
   const map = new Map<string, StockItem>()
   const row = (item: string, unit: string) => {
     const k = itemKey(item, unit)
-    if (!map.has(k)) map.set(k, { key: k, item: item.trim(), unit: unit || 'nos', counted: null, countedOn: null, inQty: 0, outQty: 0, onHand: 0, rate: 0, value: 0 })
+    if (!map.has(k)) map.set(k, { key: k, item: item.trim(), unit: unit || 'nos', counted: null, countedOn: null, inQty: 0, outQty: 0, onHand: 0, rate: 0, value: 0, lastIn: 0 })
     return map.get(k)!
   }
   last?.lines.forEach((l) => { const r = row(l.item, l.unit); r.counted = l.qty; r.countedOn = last.date })
   // Latest purchase rate per item (from anything received), for valuing stock and issues.
-  for (const f of [...flows].reverse()) if (f.kind === 'in') for (const l of f.lines) if (l.rate) row(l.item, l.unit).rate = l.rate
+  for (const f of [...flows].reverse()) if (f.kind === 'in') for (const l of f.lines) { const r = row(l.item, l.unit); if (l.rate) r.rate = l.rate; if (l.qty > 0) r.lastIn = l.qty }
   for (const f of flows) {
     if (last && f.date <= last.date) continue // already inside the count
     for (const l of f.lines) { const r = row(l.item, l.unit); if (f.kind === 'in') r.inQty = r3(r.inQty + l.qty); else r.outQty = r3(r.outQty + l.qty) }
@@ -148,10 +162,56 @@ export function useCentreKitchen() {
   return useMemo(() => {
     const flows = ckFlows(bills, all)
     const stock = ckStock(flows, counts)
-    const low = stock.filter((s) => { const lvl = levelsNow[s.key]?.reorder; return lvl != null && lvl > 0 && s.onHand <= lvl })
+    const low = stock.filter((s) => lowState(s, levelsNow[s.key]?.reorder))
     return { flows, stock, low, indents: ind, levels: levelsNow, counts }
   }, [bills, all, counts, ind, levelsNow])
 }
 
 /** Latest rate for an item, for valuing an issue. */
 export const rateOf = (stock: StockItem[], item: string, unit: string) => stock.find((s) => s.key === itemKey(item, unit))?.rate ?? 0
+
+/* ---------- Running low ---------- */
+
+/** Without a reorder level, an item is "running low" below this share of its latest delivery. */
+export const LOW_SHARE = 0.25
+export type Low = { why: 'out' | 'level' | 'share'; limit: number }
+
+/**
+ * Is this item running low?
+ *  - nothing left (0 or less): finished
+ *  - a reorder level is set: at or below it
+ *  - otherwise: below 25% of the latest delivery
+ */
+export function lowState(s: StockItem, level?: number): Low | null {
+  if (s.onHand <= 0) return { why: 'out', limit: 0 }
+  if (level != null && level > 0) return s.onHand <= level ? { why: 'level', limit: level } : null
+  if (s.lastIn > 0) { const limit = r3(s.lastIn * LOW_SHARE); return s.onHand <= limit ? { why: 'share', limit } : null }
+  return null
+}
+
+export type StockAlert = StockItem & Low & { branch: string; id: string }
+
+/** Stock on hand at one location. */
+export function stockAt(branch: string, bills: Bill[], all: StockMove[], counts: ClosingCount[]) {
+  return ckStock(branchFlows(branch, bills, all), counts, branch)
+}
+
+/** Items running low at every location (reorder levels apply to the Centre Kitchen). */
+export function stockAlerts(bills: Bill[], all: StockMove[], counts: ClosingCount[], lv: Record<string, CkItemSetting>): StockAlert[] {
+  const out: StockAlert[] = []
+  for (const b of BRANCHES) {
+    for (const s of stockAt(b.id, bills, all, counts)) {
+      const low = lowState(s, b.id === CK ? lv[s.key]?.reorder : undefined)
+      if (low) out.push({ ...s, ...low, branch: b.id, id: b.id + '|' + s.key })
+    }
+  }
+  return out.sort((a, b) => (a.why === 'out' ? 0 : 1) - (b.why === 'out' ? 0 : 1) || a.item.localeCompare(b.item))
+}
+
+export function useStockAlerts(): StockAlert[] {
+  const bills = usePostedBills()
+  const all = useStockMoves()
+  const counts = useClosingCounts()
+  const lv = useReorderLevels()
+  return useMemo(() => stockAlerts(bills, all, counts, lv), [bills, all, counts, lv])
+}

@@ -64,8 +64,8 @@ export function billPostings(b: Bill, fallbackLedger = 'Groceries Purchased'): V
     byLedger.set(name, r2((byLedger.get(name) ?? 0) + lineBase(l)))
   }
   const out: VoucherLine[] = [...byLedger].map(([ledger, v]) => ({ ledger, dr: v, cr: 0 }))
-  if (s.cgst) out.push({ ledger: 'Input CGST', dr: s.cgst, cr: 0 })
-  if (s.sgst) out.push({ ledger: 'Input SGST', dr: s.sgst, cr: 0 })
+  // CGST and SGST go together as one GST line (IGST stays separate: it's inter-state tax).
+  if (s.cgst || s.sgst) out.push({ ledger: 'Input GST', dr: r2(s.cgst + s.sgst), cr: 0 })
   if (s.igst) out.push({ ledger: 'Input IGST', dr: s.igst, cr: 0 })
   if (s.roundOff) out.push(s.roundOff > 0 ? { ledger: 'Round Off', dr: s.roundOff, cr: 0 } : { ledger: 'Round Off', dr: 0, cr: -s.roundOff })
   out.push({ ledger: partyOf(b), dr: 0, cr: s.total })

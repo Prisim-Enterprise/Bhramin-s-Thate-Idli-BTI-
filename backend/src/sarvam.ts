@@ -36,6 +36,36 @@ export type SarvamBill = {
   cgst?: number | null; sgst?: number | null; total?: number | null
 }
 
+// What we ask Sarvam to pull out of a partner's weekly payout statement (Swiggy, Zomato, Rapido, Mobikwik).
+const STATEMENT_SCHEMA = {
+  type: 'object',
+  properties: {
+    partner: { type: 'string', description: 'Who issued the statement: Swiggy, Zomato, Rapido or Mobikwik' },
+    outlet: { type: 'string', description: 'Restaurant / outlet name or location the statement is for' },
+    period_from: { type: 'string', description: 'First day of the payout period (day/month/year)' },
+    period_to: { type: 'string', description: 'Last day of the payout period (day/month/year)' },
+    gross_sales: { type: 'number', description: 'Gross order value / total sales for the period, in rupees' },
+    commission: { type: 'number', description: 'Commission charged, in rupees (positive number)' },
+    advertisement: { type: 'number', description: 'Advertisement / marketing / promotion charges, in rupees' },
+    payment_gateway: { type: 'number', description: 'Payment gateway, payment mechanism or MDR fee, in rupees' },
+    gst_on_charges: { type: 'number', description: 'GST charged on the commission and fees, in rupees' },
+    tds_tcs: { type: 'number', description: 'TDS and TCS deducted, in rupees' },
+    other_charges: {
+      type: 'array', description: 'Any other deduction: penalties, cancellations, recoveries, adjustments',
+      items: { type: 'object', properties: { label: { type: 'string' }, amount: { type: 'number' } } },
+    },
+    net_payout: { type: 'number', description: 'Net payout / amount transferred to the restaurant, in rupees' },
+    utr: { type: 'string', description: 'Bank UTR or transfer reference, if printed' },
+  },
+}
+
+export type SarvamStatement = {
+  partner?: string | null; outlet?: string | null; period_from?: string | null; period_to?: string | null
+  gross_sales?: number | null; commission?: number | null; advertisement?: number | null; payment_gateway?: number | null
+  gst_on_charges?: number | null; tds_tcs?: number | null; other_charges?: { label?: string | null; amount?: number | null }[] | null
+  net_payout?: number | null; utr?: string | null
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 async function sarvam(key: string, path: string, init: RequestInit = {}): Promise<Response> {
@@ -50,9 +80,20 @@ async function sarvam(key: string, path: string, init: RequestInit = {}): Promis
 
 /** Read one bill (image or PDF). Returns the bill and how many pages Sarvam processed. */
 export async function readBillWithSarvam(key: string, file: Blob, name: string): Promise<{ bill: SarvamBill; pages: number }> {
+  const { result, pages } = await extract<SarvamBill>(key, file, name, SCHEMA, 'bill')
+  return { bill: result, pages }
+}
+
+/** Read one weekly payout statement (scanned PDF or photo). */
+export async function readStatementWithSarvam(key: string, file: Blob, name: string): Promise<{ statement: SarvamStatement; pages: number }> {
+  const { result, pages } = await extract<SarvamStatement>(key, file, name, STATEMENT_SCHEMA, 'statement')
+  return { statement: result, pages }
+}
+
+async function extract<T>(key: string, file: Blob, name: string, schema: object, what: string): Promise<{ result: T; pages: number }> {
   const form = new FormData()
   form.append('file', file, name)
-  form.append('schema', JSON.stringify(SCHEMA))
+  form.append('schema', JSON.stringify(schema))
   form.append('output_format', 'json')
   const { job_id } = (await (await sarvam(key, '/extract', { method: 'POST', body: form })).json()) as { job_id: string }
 
@@ -67,7 +108,7 @@ export async function readBillWithSarvam(key: string, file: Blob, name: string):
     if (['completed', 'partially_completed', 'failed', 'rejected'].includes(status)) break
   }
   if (status !== 'completed' && status !== 'partially_completed') {
-    throw new Error(status === 'pending' || status === 'running' ? 'Sarvam took too long. Try “Read again”.' : `Sarvam could not read this bill (${status}).`)
+    throw new Error(status === 'pending' || status === 'running' ? 'Sarvam took too long. Try “Read again”.' : `Sarvam could not read this ${what} (${status}).`)
   }
 
   // Results come back gzip-compressed JSON.
@@ -76,6 +117,6 @@ export async function readBillWithSarvam(key: string, file: Blob, name: string):
   const text = raw[0] === 0x1f && raw[1] === 0x8b
     ? await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
     : new TextDecoder().decode(raw)
-  const out = JSON.parse(text) as { result?: SarvamBill }
-  return { bill: out.result ?? {}, pages }
+  const out = JSON.parse(text) as { result?: T }
+  return { result: out.result ?? ({} as T), pages }
 }

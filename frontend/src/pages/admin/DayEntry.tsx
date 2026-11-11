@@ -98,8 +98,12 @@ export default function DayEntry() {
         <Card title="2. Sales for the day">
           <div className="grid gap-3 sm:grid-cols-3">
             {num('sales', 'Food sales (before GST)')}
-            {num('cgst', 'CGST @ 2.5%')}
-            {num('sgst', 'SGST @ 2.5%')}
+            <Field label="Total GST @ 5%">
+              {/* One GST figure; kept as equal CGST + SGST halves underneath. */}
+              <input type="number" step="0.01" inputMode="decimal" disabled={!editable} className={inputCls + ' text-right tabular-nums'}
+                value={Math.round((e.cgst + e.sgst) * 100) / 100 || ''} placeholder="0"
+                onChange={(ev) => { const g = Number(ev.target.value) || 0; const half = Math.round(g * 50) / 100; set({ cgst: half, sgst: Math.round((g - half) * 100) / 100 }) }} />
+            </Field>
             {num('container', 'Container charges')}
             {num('discount', 'Discount (settlement)', 'Reduces the bill')}
             {num('roundOff', 'Round off', 'Use minus for a negative round off')}

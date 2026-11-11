@@ -8,7 +8,7 @@ import { useApp } from '../../../context/AppContext'
 import { useAuth } from '../../../context/AuthContext'
 import { branchName, inr } from '../../../data/mock'
 import { fmtDateTime, niceDate } from '../../../data/entries'
-import { deleteMove, saveIndent, useCentreKitchen, type CkFlow, type Indent } from '../../../data/kitchen'
+import { deleteMove, lowState, saveIndent, useCentreKitchen, type CkFlow, type Indent } from '../../../data/kitchen'
 
 export type CkTab = 'in' | 'out' | 'stock' | 'indents'
 const TABS: { id: CkTab; label: string; icon: typeof Warehouse }[] = [
@@ -136,8 +136,7 @@ export default function CentreKitchen({ initial = 'indents' }: { initial?: CkTab
             </div>
             <Table head={['Item', 'Last count', 'In since', 'Out since', 'On hand', 'Rate', 'Value', '']}>
               {ck.stock.map((s) => {
-                const lvl = ck.levels[s.key]?.reorder
-                const low = lvl != null && lvl > 0 && s.onHand <= lvl
+                const low = lowState(s, ck.levels[s.key]?.reorder)
                 return (
                   <tr key={s.key}>
                     <td className="font-medium text-slate-900">{s.item} <span className="font-normal text-slate-500">[{s.unit}]</span></td>
@@ -147,7 +146,7 @@ export default function CentreKitchen({ initial = 'indents' }: { initial?: CkTab
                     <td className={`font-semibold tabular-nums ${s.onHand < 0 ? 'text-rose-600' : ''}`}>{s.onHand}</td>
                     <td className="tabular-nums text-slate-500">{s.rate ? '₹' + s.rate : '—'}</td>
                     <td className="tabular-nums">{inr(Math.round(s.value))}</td>
-                    <td>{low ? <Badge tone="red">reorder (≤ {lvl})</Badge> : s.onHand < 0 ? <Badge tone="amber">check count</Badge> : null}</td>
+                    <td>{s.onHand < 0 ? <Badge tone="amber">check count</Badge> : low ? <Badge tone="red">{low.why === 'out' ? 'finished' : low.why === 'level' ? `reorder (≤ ${low.limit})` : 'running low'}</Badge> : null}</td>
                   </tr>
                 )
               })}

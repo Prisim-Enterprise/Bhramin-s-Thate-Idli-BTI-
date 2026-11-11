@@ -4,7 +4,8 @@ import { pdfLines } from './readImprestPdf'
 // PDFs from billing software carry real text, so we read it directly. Photos and scanned PDFs
 // have no text: the bill still opens for review, and the lines are typed in.
 
-export type ReadLine = { item: string; qty: number; unit: string; rate: number; gst: number; ledger: string }
+/** `unread`: numbers that weren't on the bill (shown as N/A). A unit or name that wasn't read is left empty (also shown as N/A). */
+export type ReadLine = { item: string; qty: number; unit: string; rate: number; gst: number; ledger: string; unread?: ('qty' | 'rate')[] }
 export type BillRead = {
   textFound: boolean
   vendor?: string
@@ -144,7 +145,7 @@ function readItem(line: string): ReadLine | null {
       // The number followed by a unit is the quantity.
       const [qn, rn] = nums[b].unitAfter && !nums[a].unitAfter ? [nums[b], nums[a]] : [nums[a], nums[b]]
       const [q, r] = [qn.v, rn.v]
-      const u = qn.unitAfter || unit || 'nos'
+      const u = qn.unitAfter || unit
       const base = q * r
       if (!base) continue
       if (close(base, amount)) return { item, qty: q, unit: u, rate: r, gst: gstTok ?? 0, ledger: ledgerFor(item) }
@@ -155,7 +156,7 @@ function readItem(line: string): ReadLine | null {
   }
   // Just a name and an amount ("Tomato 320.00"): one lot at that price.
   if (nums.length <= 2 && nums[nums.length - 1].dec && amount > 0) {
-    return { item, qty: 1, unit: unit || 'nos', rate: amount, gst: gstTok ?? 0, ledger: ledgerFor(item) }
+    return { item, qty: 1, unit, rate: amount, gst: gstTok ?? 0, ledger: ledgerFor(item), unread: ['qty', 'rate'] }
   }
   return null
 }
@@ -206,7 +207,7 @@ export function parseBillLines(raw: string[]): BillRead {
       const a = amounts(l)
       const label = (l.match(CHARGE)?.[0] ?? 'Charges').replace(/\s+/g, ' ').toUpperCase().replace(/\.$/, '')
       if (a.length && a[a.length - 1] > 0) {
-        items.push({ item: label === 'RMC' || label.startsWith('R.M') ? 'Market cess (RMC)' : label.charAt(0) + label.slice(1).toLowerCase(), qty: 1, unit: 'nos', rate: a[a.length - 1], gst: 0, ledger: CHARGE_LEDGER })
+        items.push({ item: label === 'RMC' || label.startsWith('R.M') ? 'Market cess (RMC)' : label.charAt(0) + label.slice(1).toLowerCase(), qty: 1, unit: '', rate: a[a.length - 1], gst: 0, ledger: CHARGE_LEDGER, unread: ['qty', 'rate'] })
         continue
       }
     }
@@ -313,18 +314,18 @@ export function fromSarvam(b: import('./api').SarvamBill): ReadOutcome {
     if (!name && !amount) continue
     let original: string | null = null
     if (/[\u0C80-\u0CFF]/.test(name)) { original = name; name = kannadaToEnglish(name) ?? name }
-    const unit = (it.unit ?? '').toLowerCase().replace(/\.$/, '').replace(/^kgs$/, 'kg') || (qty && rate ? 'kg' : 'nos')
+    const unit = (it.unit ?? '').trim().toLowerCase().replace(/\.$/, '').replace(/^kgs$/, 'kg') // empty = not read (N/A)
     let line: ReadLine
     let doubt = false
     if (qty && rate) {
       const base = qty * rate
       const g = amount ? GST_RATES.find((x) => Math.abs(amount - base * (1 + x / 100)) <= Math.max(1, amount * 0.004)) : 0
       if (amount && g === undefined) doubt = true // amount doesn't match qty x rate: use qty x rate, ask to check
-      line = { item: name || 'Item', qty, unit, rate, gst: g ?? 0, ledger: '' }
+      line = { item: name, qty, unit, rate, gst: g ?? 0, ledger: '' }
     } else if (qty && amount) {
-      line = { item: name || 'Item', qty, unit, rate: r2s(amount / qty), gst: 0, ledger: '' }
+      line = { item: name, qty, unit, rate: r2s(amount / qty), gst: 0, ledger: '' }
     } else {
-      line = { item: name || 'Charges', qty: 1, unit: 'nos', rate: amount ?? 0, gst: 0, ledger: '' }
+      line = { item: name, qty: 1, unit, rate: amount ?? 0, gst: 0, ledger: '', unread: ['qty', 'rate'] }
       doubt = !amount
     }
     line.ledger = ledgerFor(line.item, vendor)

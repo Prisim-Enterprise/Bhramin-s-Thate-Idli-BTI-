@@ -34,6 +34,9 @@ import OnlineOrders from './pages/admin/ops/OnlineOrders'
 import StoreActions from './pages/admin/ops/StoreActions'
 import PettyExpenses from './pages/admin/ops/PettyExpenses'
 import StockSummary from './pages/admin/inventory/StockSummary'
+import MobikwikPayments from './pages/admin/reports/MobikwikPayments'
+import WeeklyStatement from './pages/admin/reports/WeeklyStatement'
+import InventoryItems from './pages/admin/inventory/InventoryItems'
 import ClosingStock from './pages/admin/inventory/ClosingStock'
 import { PendingPurchases, PoApproval } from './pages/admin/inventory/Approvals'
 import ReportsCentre from './pages/admin/ReportsCentre'
@@ -84,6 +87,8 @@ const adminRoutes: R[] = [
   { path: 'accounting/salary', module: 'salary', el: <SalaryReport /> },
   { path: 'accounting/deductions', module: 'deductions', el: <DeductionsReport /> },
   { path: 'accounting/books', module: 'accounts', el: <AccountBooks /> },
+  { path: 'accounting/mobikwik', module: 'sales', el: <MobikwikPayments /> },
+  { path: 'accounting/weekly-statement', module: 'accounts', el: <WeeklyStatement /> },
   { path: 'accounting/pnl', module: 'accounts', el: <ProfitLoss /> },
   { path: 'kitchen/centre', module: 'indent', el: <CentreKitchen /> },
   { path: 'kitchen/indents', module: 'indent', el: <CentreKitchen key="indents" initial="indents" /> },
@@ -94,6 +99,7 @@ const adminRoutes: R[] = [
   { path: 'store-actions', module: 'sales', el: <StoreActions /> },
   { path: 'petty-expenses', module: 'expenses', el: <PettyExpenses /> },
   { path: 'menu', module: 'sales', el: <MenuPage /> },
+  { path: 'inventory/items', module: 'dashboard', el: <InventoryItems /> },
   { path: 'inventory/stock', module: 'dashboard', el: <StockSummary /> },
   { path: 'inventory/closing', module: 'dashboard', el: <ClosingStock /> },
   { path: 'inventory/po-approval', module: 'purchase', el: <PoApproval /> },

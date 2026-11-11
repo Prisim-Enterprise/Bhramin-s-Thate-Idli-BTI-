@@ -56,7 +56,8 @@ export type StockRow = {
 }
 
 /** Stock summary for a date range and branch (or all branches). */
-export function stockSummary(posted: Bill[], all: ClosingCount[], from: string, to: string, branch = ''): StockRow[] {
+/** `received`: goods an outlet got from the Centre Kitchen (counted as bought when one outlet is picked). */
+export function stockSummary(posted: Bill[], all: ClosingCount[], from: string, to: string, branch = '', received: { date: string; to?: string; kind: string; lines: { item: string; unit: string; qty: number; rate: number }[] }[] = []): StockRow[] {
   const branches = [...new Set([...posted.map((b) => b.branch), ...all.map((c) => c.branch)])].filter((b) => !branch || b === branch)
   const rows = new Map<string, StockRow>()
   const row = (item: string, unit: string) => {
@@ -76,6 +77,19 @@ export function stockSummary(posted: Bill[], all: ClosingCount[], from: string, 
       r.boughtValue = Math.round((r.boughtValue + l.qty * l.rate) * 100) / 100
       r.lastRate = l.rate
       r.ledger ||= l.ledger ?? ''
+    }
+  }
+  // Goods sent from the Centre Kitchen to this outlet (not when all branches are shown: that would count them twice).
+  if (branch && branch !== 'CK') {
+    for (const m of received) {
+      if (m.kind !== 'out' || m.to !== branch || m.date < from || m.date > to) continue
+      for (const l of m.lines) {
+        if (!l.item.trim()) continue
+        const r = row(l.item, l.unit)
+        r.bought = r2(r.bought + l.qty)
+        r.boughtValue = Math.round((r.boughtValue + l.qty * l.rate) * 100) / 100
+        if (l.rate) r.lastRate = l.rate
+      }
     }
   }
   // Opening = each branch's last count before the range; closing = its last count inside the range.

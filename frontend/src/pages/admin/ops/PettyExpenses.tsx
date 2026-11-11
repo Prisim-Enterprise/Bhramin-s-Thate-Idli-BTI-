@@ -128,6 +128,27 @@ export default function PettyExpenses() {
       </OpsHeader>
       <p className="-mt-2 mb-4 text-sm text-slate-500">Small expenses paid from each branch's cash, as reported by the branch managers. {myBranch && <>You report for <b>{branchName(myBranch)}</b>.</>}</p>
       {notice && <p className="mb-4 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800"><CheckCircle2 size={16} />{notice}</p>}
+      {!all.length && R.month && (() => {
+        // Nothing this month: point to the months that do have petty expenses.
+        const other = R.months.filter((m) => m !== R.month).map((m) => {
+          const ls = pettyLines(R.d, { month: m, branch: R.scope.branch })
+          return { m, n: ls.length, v: ls.reduce((t, l) => t + l.amount, 0) }
+        }).filter((x) => x.n)
+        if (!other.length) return null
+        return (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p className="font-medium">No petty expenses in {monthName(R.month)}{R.branch ? ` for ${branchName(R.branch)}` : ''}. They are in:</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {other.map((x) => (
+                <button key={x.m} onClick={() => R.setMonth(x.m)} className="rounded-lg bg-[#7a2228] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#651b20]">
+                  {monthName(x.m)} · {money(x.v)} · {x.n} entr{x.n === 1 ? 'y' : 'ies'}
+                </button>
+              ))}
+              {other.length > 1 && <button onClick={() => R.setMonth('')} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">Show all months</button>}
+            </div>
+          </div>
+        )
+      })()}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Tile label="Total petty expenses" value={money(total)} note={R.label} />

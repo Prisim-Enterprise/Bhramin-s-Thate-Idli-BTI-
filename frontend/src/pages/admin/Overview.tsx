@@ -3,13 +3,14 @@ import { Link } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   ArrowDownWideNarrow, ArrowRight, ArrowUpWideNarrow, BarChart3, Banknote, CalendarDays, Check, CheckCircle2, Download, FileWarning,
-  Globe, List, ReceiptText, ScanLine, Sparkles, Store, Wallet, WifiOff, type LucideIcon,
+  Globe, List, ReceiptText, ScanLine, Store, Wallet, WifiOff, type LucideIcon,
 } from 'lucide-react'
 import { downloadCsv } from '../../components/report'
 import { useApp } from '../../context/AppContext'
 import { BRANCHES, branchName, inr } from '../../data/mock'
 import { billTotal, cashIn, niceDate, useEntries, type DayEntry } from '../../data/entries'
 import { FOOD_COST_TARGET, profitLoss, purchases, useReportData } from '../../data/analytics'
+import { billSums } from '../../data/billStore'
 
 // Sales figures for a set of day entries. Online = Swiggy, Zomato and Rapido orders; offline = counter (cash, UPI, cards).
 function stats(list: DayEntry[]) {
@@ -71,6 +72,11 @@ export default function Overview() {
   const pl = profitLoss(R.d, scope)
   const pur = purchases(R.d, scope)
   const allPur = purchases(R.d, {})
+  // The most recently added bills (newest first), for the banner at the top.
+  const voucherIds = new Set(R.d.manual.map((m) => m.id))
+  const latestBills = R.d.bills.filter((b) => !outlet || b.branch === outlet)
+    .map((b) => ({ b, when: b.uploadedAt || b.date || '', total: billSums(b).total, posted: !!b.voucherId && voucherIds.has(b.voucherId) }))
+    .sort((a, b) => b.when.localeCompare(a.when)).slice(0, 5)
   const todos = [
     can('ocr') && allPur.waiting > 0 && { icon: ScanLine, to: '/admin/accounting/bills', title: `${allPur.waiting} bill(s) waiting in the OCR Bill Inbox`, text: 'Check them and post to Account Books so they count in the reports.' },
     missing.length > 0 && can('accounts') && { icon: FileWarning, to: '/admin/accounting/sales', title: `${missing.length} outlet(s) have no Imprest Book for ${shortDate(day)}`, text: missing.map((m) => m.name).join(', ') },
@@ -95,25 +101,41 @@ export default function Overview() {
         </select>
       </div>
 
-      {/* Snapshot banner */}
-      <div className="mb-6 flex flex-wrap items-center gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-[#fdf8ee] p-4 sm:p-5">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white"><Sparkles size={20} /></span>
-        <div className="min-w-0 flex-1">
-          <p className="font-semibold text-slate-900">
-            {days.length ? <>Latest snapshot: {niceDate(days[0])}</> : 'No snapshot yet'}
-            {days.length > 0 && <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 align-middle text-[11px] font-bold uppercase text-white">Latest</span>}
-          </p>
-          <p className="text-sm text-slate-600">
-            {days.length
-              ? <>Sales of {money(stats(entries.filter((e) => e.date === days[0])).gross)} from {new Set(entries.filter((e) => e.date === days[0]).map((e) => e.branch)).size} outlet(s), with profit, food cost and purchases worked out from the Imprest Books and bills.</>
-              : 'Upload an Imprest Book PDF from Accounting to see sales, cash and profit for each outlet.'}
-          </p>
-        </div>
-        {days.length > 0 && (
-          <button onClick={() => { setMode('day'); setDay(days[0]); setOutlet('') }}
+      {/* Latest bills */}
+      <div className="mb-6 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-[#fdf8ee] p-4 sm:p-5">
+        <div className="flex flex-wrap items-center gap-4">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white"><ReceiptText size={20} /></span>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-slate-900">
+              {latestBills.length ? <>Latest bills{outlet ? ` · ${branchName(outlet)}` : ''}</> : 'No bills yet'}
+              {latestBills.length > 0 && <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 align-middle text-[11px] font-bold uppercase text-white">Updated {niceDate(latestBills[0].when.slice(0, 10))}</span>}
+            </p>
+            <p className="text-sm text-slate-600">
+              {latestBills.length
+                ? <>The {latestBills.length} most recently added bill(s). Posted bills count in the reports; waiting ones need checking in the OCR Bill Inbox.</>
+                : 'Scan or upload a vendor bill in the OCR Bill Inbox and it shows here.'}
+            </p>
+          </div>
+          <Link to="/admin/accounting/bills"
             className="inline-flex items-center gap-1.5 rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800">
-            View snapshot <ArrowRight size={16} />
-          </button>
+            Open Bill Inbox <ArrowRight size={16} />
+          </Link>
+        </div>
+        {latestBills.length > 0 && (
+          <ul className="mt-4 divide-y divide-emerald-100 overflow-hidden rounded-xl border border-emerald-100 bg-white">
+            {latestBills.map(({ b, total, posted }) => (
+              <li key={b.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2.5 text-sm">
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-slate-900">{b.vendor.trim() || 'Vendor not read yet'}</span>
+                  <span className="block text-xs text-slate-500">{branchName(b.branch)} · {b.date ? niceDate(b.date) : 'no date'}{b.invoiceNo ? ` · Bill no. ${b.invoiceNo}` : ''}</span>
+                </span>
+                <span className="flex items-center gap-3">
+                  <b className="tabular-nums">{money(total)}</b>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${posted ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20' : 'bg-amber-50 text-amber-700 ring-1 ring-amber-600/20'}`}>{posted ? 'Posted' : 'Waiting'}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

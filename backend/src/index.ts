@@ -1,4 +1,4 @@
-import { readBillWithSarvam } from './sarvam'
+import { readBillWithSarvam, readStatementWithSarvam } from './sarvam'
 import { DEFAULT_MATRIX, FILE_RULE, KIND_RULES, ROLES, allowed, cleanMatrix, type Matrix, type Role } from './permissions'
 import { UserError, createLogin, listLogins, updateLogin } from './users'
 
@@ -335,6 +335,28 @@ async function handle(req: Request, env: Env): Promise<Response> {
       // Logged with the page count, which is what the daily limit counts.
       await audit(env, user.email, 'sarvam-read', 'bill', String(read))
       return json({ bill, used: used + read, limit: HANDWRITTEN_PER_DAY })
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : 'Reading failed' }, 502)
+    }
+  }
+
+  // POST /api/read-statement  (body = scanned statement PDF/photo)  ->  weekly payout statement read by Sarvam
+  // Shares the daily reading limit with handwritten bills.
+  if (parts[1] === 'read-statement' && req.method === 'POST') {
+    if (!allowed(await matrix(env), user.role, KIND_RULES.settlements.write)) return json({ error: `Your role (${user.role}) can only view.` }, 403)
+    if (!env.SARVAM_API_KEY) return json({ error: 'Statement reading is not set up (no Sarvam key on the server).' }, 503)
+    const pages = Math.max(1, Number(req.headers.get('X-Pages') ?? 1) || 1)
+    const used = await readsToday(env)
+    if (used + pages > HANDWRITTEN_PER_DAY) {
+      return json({ error: `Today's reading limit of ${HANDWRITTEN_PER_DAY} pages is used (${used} read). Type the statement in, or upload its PDF/CSV.`, used, limit: HANDWRITTEN_PER_DAY }, 429)
+    }
+    const body = await req.blob()
+    if (body.size > MAX_FILE) return json({ error: 'File is over 20 MB.' }, 413)
+    const name = decodeURIComponent(req.headers.get('X-File-Name') ?? 'statement.pdf').replace(/[^\w.\- ]+/g, '_').slice(0, 120)
+    try {
+      const { statement, pages: read } = await readStatementWithSarvam(env.SARVAM_API_KEY, new Blob([body], { type: req.headers.get('Content-Type') ?? 'application/pdf' }), name)
+      await audit(env, user.email, 'sarvam-read', 'statement', String(read))
+      return json({ statement, used: used + read, limit: HANDWRITTEN_PER_DAY })
     } catch (e) {
       return json({ error: e instanceof Error ? e.message : 'Reading failed' }, 502)
     }

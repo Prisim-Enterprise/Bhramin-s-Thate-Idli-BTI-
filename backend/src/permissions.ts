@@ -68,6 +68,10 @@ export const KIND_RULES: Record<string, { write: [ModuleId, Action[]][]; remove:
   stockMoves: { write: [['indent', ['approve', 'edit']]], remove: [['indent', ['delete', 'edit']]] },
   // Requests from outlets to the Centre Kitchen (kept under the asking outlet's branch).
   indents: { write: [['indent', ['create', 'edit', 'approve']]], remove: [['indent', ['delete', 'edit']]] },
+  // Mobikwik: UPI / card split of each day's Mobikwik takings (kept under the outlet's branch).
+  paySplits: { write: [['accounts', ['create', 'edit']], ['sales', ['edit']]], remove: [['accounts', ['delete', 'edit']]] },
+  // Weekly partner statements (Swiggy, Zomato, Rapido, Mobikwik): deductions approved, receipts matched.
+  settlements: { write: [['accounts', ['create', 'edit', 'approve']]], remove: [['accounts', ['delete', 'edit']]] },
 }
 // Uploading files (bills, receipts) and reading handwritten bills.
 export const FILE_RULE: [ModuleId, Action[]][] = [['ocr', ['create']], ['accounts', ['create']]]
