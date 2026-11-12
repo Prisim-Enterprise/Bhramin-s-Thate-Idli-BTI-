@@ -69,7 +69,7 @@ export function lastItemsOf(vendor: string, bills: Bill[], exceptId?: string): B
   const prev = bills
     .filter((b) => b.id !== exceptId && norm(b.vendor) === nv && b.lines.some((l) => l.rate > 0))
     .sort((a, b) => (b.date + (b.uploadedAt ?? '')).localeCompare(a.date + (a.uploadedAt ?? '')))[0]
-  return prev ? prev.lines.filter((l) => l.rate > 0).map((l) => ({ item: l.item, qty: 0, unit: l.unit, rate: l.rate, gst: l.gst, ledger: l.ledger, original: l.original })) : []
+  return prev ? prev.lines.filter((l) => l.rate > 0).map((l) => ({ item: l.item, desc: l.desc, qty: 0, unit: l.unit, rate: l.rate, gst: l.gst, ledger: l.ledger, original: l.original })) : []
 }
 
 /** Last known unit/rate/GST/ledger for every item name, for filling a line as you type the item. */

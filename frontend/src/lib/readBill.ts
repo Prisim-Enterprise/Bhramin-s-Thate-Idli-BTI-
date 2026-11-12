@@ -5,7 +5,7 @@ import { pdfLines } from './readImprestPdf'
 // have no text: the bill still opens for review, and the lines are typed in.
 
 /** `unread`: numbers that weren't on the bill (shown as N/A). A unit or name that wasn't read is left empty (also shown as N/A). */
-export type ReadLine = { item: string; qty: number; unit: string; rate: number; gst: number; ledger: string; unread?: ('qty' | 'rate')[] }
+export type ReadLine = { item: string; desc?: string; qty: number; unit: string; rate: number; gst: number; ledger: string; unread?: ('qty' | 'rate')[] }
 export type BillRead = {
   textFound: boolean
   vendor?: string
@@ -161,6 +161,19 @@ function readItem(line: string): ReadLine | null {
   return null
 }
 
+/** A line of words under an item (brand, size, pack, variety), not a price row, a total or the footer. */
+function isDesc(l: string): boolean {
+  return /[a-zಀ-೿]{2,}/i.test(l) && l.length <= 80 && !/\d[\d,]*\.\d{2}\b/.test(l)
+    && !NOT_ITEM.test(l) && !BUYER.test(l) && !CHARGE.test(l)
+    && !/goods\s+once|e\.?\s*&\s*o\.?\s*e|subject\s+to|jurisdiction|for\s+[a-z]+.*(traders|enterprises|stores)|^continued|^page\b/i.test(l)
+}
+const clean = (l: string) => l.replace(/[|_~»«`<>{}\[\]]/g, ' ').replace(/\s+/g, ' ').replace(/^[-:,.\s]+|[-:,\s]+$/g, '').trim()
+function undoDesc(on: ReadLine, text: string) {
+  const parts = (on.desc ?? '').split(', ')
+  if (parts[parts.length - 1] === clean(text)) parts.pop()
+  on.desc = parts.join(', ') || undefined
+}
+
 /** Biggest amount on the lines that match. */
 function lastOnMax(lines: string[], re: RegExp): number | undefined {
   const all = lines.filter((l) => re.test(l)).flatMap(amounts)
@@ -201,19 +214,45 @@ export function parseBillLines(raw: string[]): BillRead {
 
   const items: ReadLine[] = []
   const skipped: string[] = []
-  for (const l of lines) {
+  // Description printed under an item ("Gold Winner refined, 15 L tin"): kept with that item.
+  let last: ReadLine | null = null // the item the previous line(s) belonged to
+  let descLines = 0
+  let held: { text: string; on: ReadLine | null } | null = null // last description line, in case it is really the next item's name
+  for (const raw of lines) {
+    const l = raw.trim()
     // Extra charges (RMC, hamali, transport) become their own line under Freight & Hamali Charges.
     if (CHARGE.test(l) && !/total/i.test(l)) {
       const a = amounts(l)
       const label = (l.match(CHARGE)?.[0] ?? 'Charges').replace(/\s+/g, ' ').toUpperCase().replace(/\.$/, '')
       if (a.length && a[a.length - 1] > 0) {
         items.push({ item: label === 'RMC' || label.startsWith('R.M') ? 'Market cess (RMC)' : label.charAt(0) + label.slice(1).toLowerCase(), qty: 1, unit: '', rate: a[a.length - 1], gst: 0, ledger: CHARGE_LEDGER, unread: ['qty', 'rate'] })
+        last = null; held = null
         continue
       }
     }
-    const it = readItem(l)
-    if (it) items.push({ ...it, ledger: ledgerFor(it.item, vendor) })
-    else if (/[a-z]{3,}/i.test(l) && /\d+\.\d{2}\b/.test(l) && !NOT_ITEM.test(l) && !BUYER.test(l)) skipped.push(l)
+    let it: ReadLine | null = null
+    // Name on one line, figures on the next ("Sunflower Oil" / "15 ltr 150.00 2250.00").
+    const figuresOnly = /\d/.test(l) && !/[a-zಀ-೿]{2,}/i.test(l.replace(/\b(kg|kgs|g|gm|gms|ltr|l|ml|nos|pcs|pkt|box|bag|tin|dozen|doz)\b\.?/gi, ''))
+    if (held && figuresOnly) {
+      it = readItem(held.text + ' ' + l)
+      if (it && held.on) undoDesc(held.on, held.text)
+    }
+    if (!it && !figuresOnly) it = readItem(l) // a row of figures with no name is not an item
+    if (it) {
+      const line: ReadLine = { ...it, ledger: ledgerFor(it.item, vendor) }
+      items.push(line)
+      last = line; descLines = 0; held = null
+      continue
+    }
+    if (last && descLines < 3 && isDesc(l)) {
+      last.desc = last.desc ? last.desc + ', ' + clean(l) : clean(l)
+      descLines++
+      held = { text: l, on: last }
+      continue
+    }
+    last = null
+    held = isDesc(l) ? { text: l, on: null } : null // maybe the name of an item whose figures are on the next line
+    if (/[a-z]{3,}/i.test(l) && /\d+\.\d{2}\b/.test(l) && !NOT_ITEM.test(l) && !BUYER.test(l)) skipped.push(l)
   }
 
   // The grand total is the biggest of the "total" figures (tax summaries also say "Total").
@@ -311,7 +350,18 @@ export function fromSarvam(b: import('./api').SarvamBill): ReadOutcome {
   for (const it of b.items ?? []) {
     let name = (it.item ?? '').trim()
     const qty = it.qty ?? null, rate = it.rate ?? null, amount = it.amount ?? null
-    if (!name && !amount) continue
+    const desc = (it.description ?? '').replace(/\s+/g, ' ').trim()
+    if (!name && !amount) {
+      if (desc && lines.length) { const p = lines[lines.length - 1]; p.desc = p.desc ? p.desc + ', ' + desc : desc }
+      continue
+    }
+    // A row with only words under an item (no qty, rate or amount) is that item's description.
+    if (!qty && !rate && !amount && lines.length && !CHARGE.test(name)) {
+      const p = lines[lines.length - 1]
+      const add = [name, desc].filter(Boolean).join(', ')
+      p.desc = p.desc ? p.desc + ', ' + add : add
+      continue
+    }
     let original: string | null = null
     if (/[\u0C80-\u0CFF]/.test(name)) { original = name; name = kannadaToEnglish(name) ?? name }
     const unit = (it.unit ?? '').trim().toLowerCase().replace(/\.$/, '').replace(/^kgs$/, 'kg') // empty = not read (N/A)
@@ -329,6 +379,7 @@ export function fromSarvam(b: import('./api').SarvamBill): ReadOutcome {
       doubt = !amount
     }
     line.ledger = ledgerFor(line.item, vendor)
+    if (desc) line.desc = desc
     lines.push(line)
     originals.push(original)
     unsure.push(doubt)

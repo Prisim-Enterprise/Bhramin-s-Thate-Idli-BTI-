@@ -53,7 +53,7 @@ export async function fileBlob(key: string): Promise<Blob> {
 /** What Sarvam read from a bill (fields can be missing). */
 export type SarvamBill = {
   vendor?: string | null; bill_no?: string | null; date?: string | null
-  items?: { item?: string | null; qty?: number | null; unit?: string | null; rate?: number | null; amount?: number | null }[] | null
+  items?: { item?: string | null; description?: string | null; qty?: number | null; unit?: string | null; rate?: number | null; amount?: number | null }[] | null
   cgst?: number | null; sgst?: number | null; total?: number | null
 }
 export type Usage = { used: number; limit: number }

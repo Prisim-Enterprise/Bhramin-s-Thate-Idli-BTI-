@@ -50,8 +50,8 @@ function useFileUrl(f: Bill['file']) {
 /** `again`: on "Read again", what was already typed stays when it still can't be read. Otherwise unread = empty (N/A). */
 function fromRead(base: Bill, r: ReadOutcome, again = false): Bill {
   const vendor = r.vendor || (again ? base.vendor : '')
-  const lines: BillLine[] = r.lines.map(({ item, qty, unit, rate, gst, ledger, unread }, i) => ({
-    item, qty, unit, rate, gst, ledger, unread, original: r.originals?.[i] ?? undefined, unsure: r.unsure?.[i] || undefined,
+  const lines: BillLine[] = r.lines.map(({ item, desc, qty, unit, rate, gst, ledger, unread }, i) => ({
+    item, desc: desc || undefined, qty, unit, rate, gst, ledger, unread, original: r.originals?.[i] ?? undefined, unsure: r.unsure?.[i] || undefined,
   }))
   // Total found but no item rows: keep the whole bill as one line so nothing is lost.
   if (!lines.length && r.total) {
@@ -471,6 +471,9 @@ export default function OcrBills() {
                                     ? { item: e.target.value, unit: known.unit, rate: known.rate, gst: known.gst, ledger: known.ledger }
                                     : { item: e.target.value, ledger: l.ledger || ledgerFor(e.target.value, sel.vendor) })
                                 }} />
+                              <textarea rows={1} aria-label="Item description" className="mt-1 block w-full resize-none field-sizing-content rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-slate-600 placeholder:text-slate-400 hover:border-slate-200 focus:border-slate-300 focus:bg-white focus:outline-none disabled:hover:border-transparent"
+                                placeholder={locked ? '' : 'Description (brand, size, pack)'} value={l.desc ?? ''} disabled={locked}
+                                onChange={(e) => updateLine(i, { desc: e.target.value || undefined })} />
                               {l.original && <span className="mt-0.5 block text-xs text-slate-500" lang="kn">On bill: {l.original}</span>}
                               {l.unsure && <span className="mt-0.5 block text-xs font-medium text-amber-700">? Hard to read — check this line</span>}
                             </td>

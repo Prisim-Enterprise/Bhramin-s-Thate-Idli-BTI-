@@ -17,6 +17,7 @@ const SCHEMA = {
         type: 'object',
         properties: {
           item: { type: 'string', description: 'Item name in English (translate Kannada)' },
+          description: { type: 'string', description: 'Any extra description written with or under the item: brand, variety, size, pack, grade (translate Kannada). Empty if none' },
           qty: { type: 'number', description: 'Quantity, e.g. kilograms or count' },
           unit: { type: 'string', description: 'Unit such as kg, ltr, nos, box' },
           rate: { type: 'number', description: 'Price per unit' },
@@ -32,7 +33,7 @@ const SCHEMA = {
 
 export type SarvamBill = {
   vendor?: string | null; bill_no?: string | null; date?: string | null
-  items?: { item?: string | null; qty?: number | null; unit?: string | null; rate?: number | null; amount?: number | null }[] | null
+  items?: { item?: string | null; description?: string | null; qty?: number | null; unit?: string | null; rate?: number | null; amount?: number | null }[] | null
   cgst?: number | null; sgst?: number | null; total?: number | null
 }
 
