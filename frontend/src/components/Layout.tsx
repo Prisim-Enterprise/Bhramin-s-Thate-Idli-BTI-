@@ -65,7 +65,7 @@ export const HUBS: Record<HubId, { label: string; icon: LucideIcon; to: string; 
       { to: '/admin/accounting/deductions', label: 'Deductions Report', icon: MinusCircle, module: 'deductions', desc: 'PF, ESI and other cuts explained' },
       { to: '/admin/accounting/bills', label: 'OCR Bill Inbox', icon: ScanLine, module: 'ocr', desc: 'Check bills read by OCR' },
       { to: '/admin/accounting/mobikwik', label: 'Mobikwik', icon: CreditCard, module: 'sales', desc: 'Cash, UPI and card taken at the counter' },
-      { to: '/admin/accounting/weekly-statement', label: 'Weekly Statement', icon: FileCheck2, module: 'accounts', desc: 'Partner payouts: deductions approved, receipts matched' },
+      { to: '/admin/accounting/reconcile', label: 'Reconcile', icon: FileCheck2, module: 'accounts', desc: 'Partner payouts: deductions approved, receipts matched' },
     ],
   },
   kitchen: {

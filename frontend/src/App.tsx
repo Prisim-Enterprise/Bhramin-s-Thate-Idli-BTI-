@@ -88,7 +88,8 @@ const adminRoutes: R[] = [
   { path: 'accounting/deductions', module: 'deductions', el: <DeductionsReport /> },
   { path: 'accounting/books', module: 'accounts', el: <AccountBooks /> },
   { path: 'accounting/mobikwik', module: 'sales', el: <MobikwikPayments /> },
-  { path: 'accounting/weekly-statement', module: 'accounts', el: <WeeklyStatement /> },
+  { path: 'accounting/reconcile', module: 'accounts', el: <WeeklyStatement /> },
+  { path: 'accounting/weekly-statement', module: 'accounts', el: <Navigate to="/admin/accounting/reconcile" replace /> }, // old address
   { path: 'accounting/pnl', module: 'accounts', el: <ProfitLoss /> },
   { path: 'kitchen/centre', module: 'indent', el: <CentreKitchen /> },
   { path: 'kitchen/indents', module: 'indent', el: <CentreKitchen key="indents" initial="indents" /> },

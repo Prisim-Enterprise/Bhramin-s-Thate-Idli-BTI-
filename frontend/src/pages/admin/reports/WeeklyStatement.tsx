@@ -214,7 +214,7 @@ export default function WeeklyStatement() {
   const matched = rows.filter((r) => r.status === 'matched').length
   const sel_ = rows.find((r) => r.id === open)
 
-  const csv = () => downloadCsv(`BTI-Weekly-Statement-${week}.csv`, [
+  const csv = () => downloadCsv(`BTI-Reconcile-${week}.csv`, [
     ['Week', 'Partner', 'Outlet', 'Sales (books)', 'Gross (statement)', 'Commission', 'Advertisement', 'Other charges', 'Net receipts', 'Received', 'Difference', 'Deductions waiting approval', 'Status', 'Received on', 'UTR'],
     ...rows.map((r) => [`${week} to ${weekEndOf(week)}`, partnerName(r.partner), branchName(r.branch), r.books, r.gross ?? 'N/A', r.commission, r.ads, r.charges, r.net ?? 'N/A', r.received ?? 'N/A', r.receiptDiff ?? '', r.pending, r.status, r.s?.receivedOn ?? '', r.s?.utr ?? '']),
     ['', 'Total', '', T.books, T.gross, T.commission, T.ads, T.charges, T.net, T.received, r2(T.received - T.net), pending, '', '', ''],
@@ -224,7 +224,7 @@ export default function WeeklyStatement() {
     <div className="mx-auto max-w-7xl">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Weekly Statement</h1>
+          <h1 className="text-xl font-semibold text-slate-900">Reconcile</h1>
           <p className="mt-1 text-sm text-slate-500">Week {niceDate(week)} – {niceDate(weekEndOf(week))} · {matched} of {rows.length} matched</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
