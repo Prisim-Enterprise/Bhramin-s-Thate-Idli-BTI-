@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Download, FileCheck2, FileText, Plus, ScanLine, Trash2, Undo2, Upload, XCircle } from 'lucide-react'
 import { Tile, downloadCsv, money } from '../../../components/report'
 import { Badge, Button, inputCls } from '../../../components/ui'
@@ -168,6 +169,13 @@ export default function WeeklyStatement() {
   const [open, setOpen] = useState<string | null>(null)
   const [reading, setReading] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  // Opened from an alert: ?week=2026-08-17&open=zomato:B8:2026-08-17 shows that week with the statement open.
+  const [params] = useSearchParams()
+  useEffect(() => {
+    const w = params.get('week'), o = params.get('open')
+    if (w && /^\d{4}-\d{2}-\d{2}$/.test(w)) { setWeek(weekStart(w)); setBranch(''); setPartner('') }
+    if (o) setOpen(o)
+  }, [params])
   const fileInput = useRef<HTMLInputElement>(null)
   const target = useRef<StatementRow | null>(null) // the row an upload is for (null = work it out from the statement)
 

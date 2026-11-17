@@ -138,6 +138,30 @@ export function statementRow(partner: PartnerId, branch: string, week: string, e
   return { id: settlementId(partner, branch, week), partner, branch, week, books, s, gross, commission, ads, charges, deductions, net, received, salesDiff, payoutDiff, receiptDiff, pending, status }
 }
 
+/* ---------- Alerts: a statement that doesn't match ---------- */
+
+export type ReconcileAlert = {
+  id: string // changes when the figures change, so a new difference alerts again
+  rowId: string; partner: PartnerId; branch: string; week: string
+  problems: string[]
+}
+
+/** Every statement where something doesn't tally: sales vs books, our net vs the statement, or money received vs net. */
+export function reconcileAlerts(entries: DayEntry[], all: Settlement[]): ReconcileAlert[] {
+  const inr = (n: number) => '₹' + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+  const off = (n: number | null): n is number => n != null && Math.abs(n) > TOLERANCE
+  const out: ReconcileAlert[] = []
+  for (const s of all) {
+    const r = statementRow(s.partner, s.branch, s.date, entries, s)
+    const problems: string[] = []
+    if (off(r.salesDiff)) problems.push(`Statement sales ${r.salesDiff > 0 ? 'more' : 'less'} than the Imprest Book by ${inr(r.salesDiff)}`)
+    if (off(r.payoutDiff)) problems.push(`Our net receipts differ from the statement's net payout by ${inr(r.payoutDiff)}`)
+    if (off(r.receiptDiff)) problems.push(r.receiptDiff < 0 ? `Received ${inr(r.receiptDiff)} less than net receipts` : `Received ${inr(r.receiptDiff)} more than net receipts`)
+    if (problems.length) out.push({ id: `${r.id}|${r.salesDiff ?? ''}|${r.payoutDiff ?? ''}|${r.receiptDiff ?? ''}`, rowId: r.id, partner: s.partner, branch: s.branch, week: s.date, problems })
+  }
+  return out.sort((a, b) => b.week.localeCompare(a.week) || a.partner.localeCompare(b.partner))
+}
+
 /** Every partner × outlet that sold something that week or has a statement for it. */
 export function weekRows(week: string, entries: DayEntry[], all: Settlement[], branch = '', partner = ''): StatementRow[] {
   const end = weekEndOf(week)
