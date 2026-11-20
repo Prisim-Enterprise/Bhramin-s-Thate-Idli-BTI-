@@ -296,17 +296,19 @@ export default function OcrBills() {
   const posted = isPosted(sel)
   const hasFile = !!(sel.file?.key || sel.file?.dataUrl)
   const locked = posted || !canEdit || sel.status === 'processing'
-  const updateLine = (i: number, patch: Partial<BillLine>) => update({ lines: sel.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) })
+  const updateLine = (i: number, patch: Partial<BillLine>) => update({ lines: sel.lines.map((l, j) => {
+    if (j !== i) return l
+    const next = { ...l, ...patch }
+    // Quantity or rate changed: a GST typed in rupees no longer fits, so it's worked out from the % again.
+    if (('qty' in patch || 'rate' in patch) && !('gstAmt' in patch)) next.gstAmt = undefined
+    return next
+  }) })
   const sums = billSums(sel)
   // Services carry TDS (held back from the vendor); goods don't.
   const tds = billTds(sel, custom)
   const postings = billPostings(sel, undefined, tds)
   const flow = sel.script === 'manual' ? MANUAL_STEPS : STEPS
   const step = sel.script === 'manual' ? (posted ? 2 : 1) : sel.status === 'processing' ? 1 : posted ? 3 : 2
-  const taxInput = (k: 'cgst' | 'sgst' | 'igst', v: number) => (
-    <input type="number" step="0.01" aria-label={k.toUpperCase()} className={inputCls + ' !w-28 !py-1 text-right'} value={v} disabled={locked}
-      onChange={(e) => update({ [k]: e.target.value === '' ? undefined : +e.target.value })} />
-  )
 
   const doPost = () => {
     const err = postBill(sel, by, custom)
@@ -456,11 +458,12 @@ export default function OcrBills() {
 
                   <datalist id="bill-ledgers">{ledgerNames.map((n) => <option key={n} value={n} />)}</datalist>
                   <datalist id="bill-vendors">{vendorNames.map((n) => <option key={n} value={n} />)}</datalist>
+                  <datalist id="bill-gst-rates">{[0, 5, 12, 18, 28].map((r) => <option key={r} value={r} />)}</datalist>
                   <datalist id="bill-items">{[...itemMemory.values()].map((l) => <option key={l.item} value={l.item} />)}</datalist>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="text-left text-xs uppercase text-slate-500">
-                        <tr><th className="py-2">Item</th><th>Ledger</th><th>Qty</th><th>Unit</th><th>Rate</th><th>GST %</th><th className="text-right">Amount</th><th /></tr>
+                        <tr><th className="py-2">Item</th><th>Ledger</th><th>Qty</th><th>Unit</th><th>Rate</th><th>GST %</th><th className="text-right">GST ₹</th><th className="text-right">Amount</th><th /></tr>
                       </thead>
                       <tbody>
                         {sel.lines.map((l, i) => (
@@ -491,17 +494,26 @@ export default function OcrBills() {
                             }} /></td>
                             <td className="pr-2"><input aria-label="Unit" className={inputCls + ' !w-16 !py-1' + naCls} placeholder="N/A" value={l.unit} disabled={locked} onChange={(e) => updateLine(i, { unit: e.target.value })} /></td>
                             <td className="pr-2"><input type="number" aria-label="Rate" className={inputCls + ' !w-24 !py-1' + naCls} placeholder="N/A" value={l.unread?.includes('rate') ? '' : l.rate} disabled={locked} onChange={(e) => updateLine(i, { rate: +e.target.value, unread: without(l, 'rate') })} /></td>
-                            <td className="pr-2"><input type="number" aria-label="GST percent" className={inputCls + ' !w-16 !py-1'} value={l.gst} disabled={locked} onChange={(e) => updateLine(i, { gst: +e.target.value })} /></td>
+                            <td className="pr-2"><input type="number" step="0.01" min="0" list="bill-gst-rates" aria-label="GST percent" className={inputCls + ' !w-16 !py-1'} value={l.gst} disabled={locked} onChange={(e) => updateLine(i, { gst: Math.max(0, +e.target.value || 0), gstAmt: undefined })} /></td>
+                            <td className="pr-2 text-right">
+                              {/* GST in rupees, as printed on the bill: the % is worked out from it. */}
+                              <input type="number" step="0.01" min="0" aria-label="GST in rupees" className={inputCls + ' !w-24 !py-1 text-right'} disabled={locked} value={lineGst(l) || ''} placeholder="0.00"
+                                onChange={(e) => {
+                                  if (e.target.value === '') return updateLine(i, { gst: 0, gstAmt: undefined })
+                                  const g = Math.max(0, +e.target.value || 0); const base = lineBase(l)
+                                  updateLine(i, { gstAmt: g, gst: base > 0 ? r2(g / base * 100) : l.gst })
+                                }} />
+                            </td>
                             <td className="text-right">
                               <input type="number" step="0.01" aria-label="Amount" title="Type the amount from the bill; the rate is worked out"
                                 className={inputCls + ' !w-28 !py-1 text-right'} disabled={locked}
                                 value={Math.round((lineBase(l) + lineGst(l)) * 100) / 100}
-                                onChange={(e) => { const amt = +e.target.value; const q = l.qty || 1; updateLine(i, { qty: q, rate: Math.round((amt / q / (1 + l.gst / 100)) * 10000) / 10000, unread: without(l, 'rate') }) }} />
+                                onChange={(e) => { const amt = +e.target.value; const q = l.qty || 1; updateLine(i, { qty: q, rate: Math.round((amt / q / (1 + l.gst / 100)) * 10000) / 10000, unread: without(l, 'rate'), gstAmt: undefined }) }} />
                             </td>
                             <td className="pl-2">{!locked && <button className="text-slate-400 hover:text-rose-600" aria-label="Remove line" onClick={() => update({ lines: sel.lines.filter((_, j) => j !== i) })}><Trash2 size={14} /></button>}</td>
                           </tr>
                         ))}
-                        {!sel.lines.length && <tr><td colSpan={8} className="py-6 text-center text-slate-500">No items yet. Use <b>+ Add line</b>.</td></tr>}
+                        {!sel.lines.length && <tr><td colSpan={9} className="py-6 text-center text-slate-500">No items yet. Use <b>+ Add line</b>.</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -522,11 +534,13 @@ export default function OcrBills() {
                       <dt className="text-slate-500">Items (before tax)</dt><dd className="text-right tabular-nums">{inr(sums.subtotal)}</dd>
                       <dt className="text-slate-500">Total GST</dt>
                       <dd className="text-right">
-                        {/* One GST figure; kept as equal CGST + SGST halves underneath. */}
-                        <input type="number" step="0.01" aria-label="Total GST" className={inputCls + ' !w-28 !py-1 text-right'} value={r2(sums.cgst + sums.sgst)} disabled={locked}
-                          onChange={(e) => { if (e.target.value === '') return update({ cgst: undefined, sgst: undefined }); const g = +e.target.value; const half = r2(g / 2); update({ cgst: half, sgst: r2(g - half) }) }} />
+                        {/* One GST figure (CGST + SGST, or IGST): worked out from the items, or typed as printed on the bill. */}
+                        <input type="number" step="0.01" min="0" aria-label="Total GST" className={inputCls + ' !w-28 !py-1 text-right'} value={sums.gst} disabled={locked}
+                          onChange={(e) => { if (e.target.value === '') return update({ cgst: undefined, sgst: undefined, igst: undefined }); const g = Math.max(0, +e.target.value || 0); const half = r2(g / 2); update({ cgst: half, sgst: r2(g - half), igst: undefined }) }} />
+                        {!locked && (sel.cgst != null || sel.sgst != null || sel.igst != null) && Math.abs(sums.gst - sel.lines.reduce((t, l) => t + lineGst(l), 0)) >= 0.01 && (
+                          <button type="button" className="block w-full text-right text-[11px] text-brand-600 hover:underline" onClick={() => update({ cgst: undefined, sgst: undefined, igst: undefined })}>Use GST from the items ({inr(r2(sel.lines.reduce((t, l) => t + lineGst(l), 0)))})</button>
+                        )}
                       </dd>
-                      {(sums.igst > 0 || sel.igst != null) && <><dt className="text-slate-500">IGST</dt><dd className="text-right">{taxInput('igst', sums.igst)}</dd></>}
                       {sums.roundOff !== 0 && <><dt className="text-slate-500">Round off</dt><dd className="text-right tabular-nums">{inr(sums.roundOff)}</dd></>}
                       <dt className="font-semibold">Total</dt><dd className="text-right font-semibold tabular-nums">{inr(sums.total)}</dd>
                       {tds.lines.flatMap((t) => [

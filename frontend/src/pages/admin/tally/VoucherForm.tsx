@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { BRANCHES, branchName } from '../../../data/mock'
 import { GROUPS, imprestLedger, type GroupId } from '../../../data/books'
 import { addLedger, addManualVoucher, deleteManualVoucher, sides, updateManualVoucher, type InvoiceDraft, type ManualType, type ManualVoucher, type VoucherLine } from '../../../data/ledgerStore'
-import { checkVoucher, fits, invoiceLines, isInvoiceType, partyIsDebit, type EntryLine } from '../../../data/tally'
+import { checkVoucher, fits, invoiceLines, isInvoiceType, itemGst, partyIsDebit, type EntryLine } from '../../../data/tally'
 import { isTdsLedger, withTds, workTds } from '../../../data/tds'
 import { Dialog, Row, T, amt, tDate, useScreenKeys, weekday } from './ui'
 import { LedgerForm, LedgerPicker } from './Masters'
@@ -38,6 +38,8 @@ export function VoucherForm({ books, type, alter, prefill, date: startDate, bran
   const [refNo, setRefNo] = useState(alter?.refNo ?? prefill?.refNo ?? '')
   const [party, setParty] = useState(inv0?.party ?? '')
   const [items, setItems] = useState(inv0?.items?.length ? inv0.items : [blankItem()])
+  // A filled last line gets a fresh one below it straight away (not on leaving the box, which moved the page under a click).
+  useEffect(() => { const last = items[items.length - 1]; if (last && last.ledger.trim() && last.amount > 0) setItems((xs) => [...xs, blankItem()]) }, [items])
   const [roundOff, setRoundOff] = useState(inv0?.roundOff ?? true)
   const [tdsOn, setTdsOn] = useState(!alter?.tdsOff)
   const [lines, setLines] = useState<EntryLine[]>(alter && !inv0 ? linesOf(alter) : prefill?.lines ?? startLines(type))
@@ -48,8 +50,9 @@ export function VoucherForm({ books, type, alter, prefill, date: startDate, bran
   const touch = () => { setDirty(true); setErr(null) }
 
   // GST and Round Off lines are worked out by the voucher; their ledgers are made on first use.
-  const isAuto = (n: string) => /^(Input GST|Output GST @ \d+(\.\d+)?%|Round Off)$/.test(n.trim()) || isTdsLedger(n)
-  const autoGroup = (n: string): GroupId => (/GST/.test(n) || isTdsLedger(n) ? 'duties' : 'indirectInc')
+  // So are Bank Charges and Bank Interest Received, suggested from a bank statement line.
+  const isAuto = (n: string) => /^(Input GST|Output GST @ \d+(\.\d+)?%|Round Off|Bank Charges|Bank Interest Received)$/.test(n.trim()) || isTdsLedger(n)
+  const autoGroup = (n: string): GroupId => (/GST/.test(n) || isTdsLedger(n) ? 'duties' : /^Bank Charges$/.test(n.trim()) ? 'indirectExp' : 'indirectInc')
   const groupOfName = (n: string): GroupId | null => books.find(n)?.group ?? (isAuto(n) ? autoGroup(n) : null)
   const draft: InvoiceDraft = { party, items, roundOff }
   const calc = useMemo(() => (invoice ? invoiceLines(type, draft) : null), [invoice, type, party, items, roundOff]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -169,7 +172,7 @@ export function VoucherForm({ books, type, alter, prefill, date: startDate, bran
           <table className="mt-3 w-full border border-[#c5d1de] bg-white text-sm">
             <thead className={T.title}><tr>
               <th className="px-2 py-1 text-left">Particulars ({type === 'Sales' || type === 'Credit Note' ? 'sales' : 'purchase / expense'} ledger)</th>
-              <th className="w-24 px-2 text-right">GST %</th><th className="w-36 px-2 text-right">Amount</th><th className="w-8" />
+              <th className="w-24 px-2 text-right">GST %</th><th className="w-28 px-2 text-right">GST ₹</th><th className="w-36 px-2 text-right">Amount</th><th className="w-8" />
             </tr></thead>
             <tbody>
               {items.map((it, i) => (
@@ -180,21 +183,30 @@ export function VoucherForm({ books, type, alter, prefill, date: startDate, bran
                       onCreate={(n) => setCreating({ name: n, put: (nm) => setItems((xs) => xs.map((x, j) => (j === i ? { ...x, ledger: nm } : x))) })} />
                   </td>
                   <td className="px-2 py-1">
-                    <select aria-label={`GST % ${i + 1}`} className={T.input + ' text-right'} value={it.gst} onChange={(e) => { touch(); setItems((xs) => xs.map((x, j) => (j === i ? { ...x, gst: Number(e.target.value) } : x))) }}>
-                      {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}
-                    </select>
+                    {/* Any rate can be typed; the usual ones are offered. */}
+                    <input aria-label={`GST % ${i + 1}`} type="number" step="0.01" min="0" list="gst-rates" className={T.input + ' text-right tabular-nums'} value={it.gst || ''} placeholder="0"
+                      onChange={(e) => { touch(); setItems((xs) => xs.map((x, j) => (j === i ? { ...x, gst: Math.max(0, Number(e.target.value) || 0), gstAmt: undefined } : x))) }} />
+                  </td>
+                  <td className="px-2 py-1">
+                    {/* GST in rupees, as printed on the bill: the % is worked out from it. */}
+                    <input aria-label={`GST in rupees ${i + 1}`} type="number" step="0.01" min="0" className={T.input + ' text-right tabular-nums'} value={itemGst(it) || ''} placeholder="0.00"
+                      onChange={(e) => {
+                        touch()
+                        const v = e.target.value
+                        setItems((xs) => xs.map((x, j) => (j !== i ? x : v === '' ? { ...x, gst: 0, gstAmt: undefined }
+                          : { ...x, gstAmt: Math.max(0, Number(v) || 0), gst: x.amount > 0 ? r2(Math.max(0, Number(v) || 0) / x.amount * 100) : x.gst })))
+                      }} />
                   </td>
                   <td className="px-2 py-1">
                     <input aria-label={`Amount ${i + 1}`} type="number" step="0.01" className={T.input + ' text-right tabular-nums'} value={it.amount || ''}
-                      onChange={(e) => { touch(); setItems((xs) => xs.map((x, j) => (j === i ? { ...x, amount: Number(e.target.value) || 0 } : x))) }}
-                      onBlur={() => { if (it.ledger.trim() && it.amount > 0 && i === items.length - 1) setItems((xs) => [...xs, blankItem()]) }} />
+                      onChange={(e) => { touch(); setItems((xs) => xs.map((x, j) => (j === i ? { ...x, amount: Number(e.target.value) || 0, gstAmt: undefined } : x))) }} />
                   </td>
                   <td className="text-center">{items.length > 1 && <button type="button" aria-label={`Remove line ${i + 1}`} className="text-[#9aa7b4] hover:text-rose-600" onClick={() => { touch(); setItems((xs) => xs.filter((_, j) => j !== i)) }}>×</button>}</td>
                 </tr>
               ))}
               {calc!.lines.filter((l) => /GST|Round Off/.test(l.ledger) && !items.some((it) => it.ledger.trim() === l.ledger)).map((l) => (
                 <tr key={l.ledger} className="border-t border-[#e3e9ef] italic text-[#33475b]">
-                  <td className="px-2 py-1 pl-6">{l.ledger}</td><td />
+                  <td className="px-2 py-1 pl-6">{l.ledger}</td><td /><td />
                   <td className="px-2 text-right tabular-nums">{(l.ledger === 'Round Off' && (partyIsDebit(type) ? l.dr : l.cr)) ? '−' : ''}{amt(l.dr || l.cr)}</td><td />
                 </tr>
               ))}
@@ -202,16 +214,17 @@ export function VoucherForm({ books, type, alter, prefill, date: startDate, bran
             <tfoot className="border-t-2 border-[#9db3c8] font-bold">
               <tr><td className="px-2 py-1.5">
                 <label className="inline-flex items-center gap-1.5 text-xs font-normal"><input type="checkbox" checked={roundOff} onChange={(e) => { touch(); setRoundOff(e.target.checked) }} /> Round off to the rupee</label>
-              </td><td className="px-2 text-right text-xs font-normal">GST {amt(calc!.gst) || '0.00'}</td><td className="px-2 text-right tabular-nums">{amt(calc!.total) || '0.00'}</td><td /></tr>
+              </td><td /><td className="px-2 text-right text-xs font-normal">GST {amt(calc!.gst) || '0.00'}</td><td className="px-2 text-right tabular-nums">{amt(calc!.total) || '0.00'}</td><td /></tr>
               {tdsUse.map((t) => (
                 <tr key={t.ledger} className="font-normal italic text-[#33475b]">
-                  <td className="px-2 py-1 pl-6" title={t.note}>Less: {t.ledger}</td><td className="px-2 text-right text-xs">@ {t.rate}%</td>
+                  <td className="px-2 py-1 pl-6" title={t.note}>Less: {t.ledger}</td><td className="px-2 text-right text-xs">@ {t.rate}%</td><td />
                   <td className="px-2 text-right tabular-nums">−{amt(t.amount)}</td><td />
                 </tr>
               ))}
-              {tdsTotal > 0 && <tr><td className="px-2 py-1">Payable to {party.trim()}</td><td /><td className="px-2 text-right tabular-nums">{amt(r2(calc!.total - tdsTotal))}</td><td /></tr>}
+              {tdsTotal > 0 && <tr><td className="px-2 py-1">Payable to {party.trim()}</td><td /><td /><td className="px-2 text-right tabular-nums">{amt(r2(calc!.total - tdsTotal))}</td><td /></tr>}
             </tfoot>
           </table>
+          <datalist id="gst-rates">{[0, 5, 12, 18, 28].map((r) => <option key={r} value={r} />)}</datalist>
           {(tds.lines.length > 0 || tds.notes.length > 0) && (
             <div data-testid="voucher-tds" className="mt-2 border-l-4 border-[#1f5f99] bg-[#eef4fa] px-3 py-2 text-xs text-[#1c2b3a]">
               {tds.lines.length > 0 && (

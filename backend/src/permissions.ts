@@ -77,6 +77,8 @@ export const KIND_RULES: Record<string, { write: [ModuleId, Action[]][]; remove:
   // Bank reconciliation: bank dates on vouchers, and the bank statement lines uploaded to match against.
   bankRecos: { write: [['accounts', ['create', 'edit', 'approve']]], remove: [['accounts', ['edit', 'delete']]] },
   bankLines: { write: [['accounts', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']]] },
+  // Opening BRS: cheques and deposits from before the books started that the bank hadn't cleared.
+  bankOpening: { write: [['accounts', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']]] },
 }
 // Uploading files (bills, receipts) and reading handwritten bills.
 export const FILE_RULE: [ModuleId, Action[]][] = [['ocr', ['create']], ['accounts', ['create']]]

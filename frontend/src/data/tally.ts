@@ -42,14 +42,17 @@ const r2 = (n: number) => Math.round(n * 100) / 100
 /** GST ledger for a rate: output tax on sales, input tax on purchases (CGST + SGST shown as one GST line). */
 export const gstLedgerFor = (type: ManualType, rate: number) => (salesSide(type) ? `Output GST @ ${rate}%` : 'Input GST')
 
+/** GST on an item line: the amount typed in, or worked out from the GST %. */
+export const itemGst = (i: { amount: number; gst: number; gstAmt?: number }) => (i.gstAmt != null ? r2(i.gstAmt) : r2(i.amount * i.gst / 100))
+
 /** Turn an invoice-style voucher into its Dr / Cr lines, with GST and round off worked out. */
 export function invoiceLines(type: ManualType, inv: InvoiceDraft) {
   const items = inv.items.filter((i) => i.ledger.trim() && i.amount > 0)
   const sub = r2(items.reduce((t, i) => t + i.amount, 0))
   const gstBy = new Map<string, number>()
-  for (const i of items) if (i.gst > 0) {
-    const name = gstLedgerFor(type, i.gst)
-    gstBy.set(name, r2((gstBy.get(name) ?? 0) + i.amount * i.gst / 100))
+  for (const i of items) {
+    const g = itemGst(i)
+    if (g > 0) { const name = gstLedgerFor(type, i.gst); gstBy.set(name, r2((gstBy.get(name) ?? 0) + g)) }
   }
   const gst = r2([...gstBy.values()].reduce((t, v) => t + v, 0))
   const gross = r2(sub + gst)

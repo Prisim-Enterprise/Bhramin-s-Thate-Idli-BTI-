@@ -1,6 +1,6 @@
 import { cloudStore } from './cloudStore'
 import { ledgerKey } from './ledgerStore'
-import type { Voucher } from './books'
+import type { VchType, Voucher } from './books'
 import type { StatementLine } from '../lib/readBankStatement'
 
 // Bank reconciliation, as in Tally (Banking → Bank Reconciliation):
@@ -16,6 +16,19 @@ const lines = cloudStore<BankLine>('prisim.bankLines', { kind: 'bankLines', idOf
 export const useBankRecos = recos.use
 export const useBankLines = lines.use
 
+/** Opening BRS (Tally): cheques issued or deposited before the books start that the bank hadn't cleared by then.
+ *  They are already inside the bank ledger's opening balance, so they only show in the reconciliation. */
+export type OpeningItem = { id: string; ledger: string; date: string; particulars: string; instrumentNo?: string; dir: 'dep' | 'wd'; amount: number; by: string; at: string }
+const opening = cloudStore<OpeningItem>('prisim.bankOpening', { kind: 'bankOpening', idOf: (o) => o.id })
+export const useBankOpening = opening.use
+export function addOpeningItem(o: Omit<OpeningItem, 'id' | 'at'>) {
+  opening.set([...opening.get(), { ...o, id: `ob-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, at: new Date().toISOString() }])
+}
+export function deleteOpeningItem(id: string) {
+  opening.set(opening.get().filter((o) => o.id !== id))
+  recos.set(recos.get().filter((r) => r.voucherId !== id))
+}
+
 const r2 = (n: number) => Math.round(n * 100) / 100
 const hash = (s: string) => { let h = 5381; for (const ch of s) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return h.toString(36) }
 export const recoId = (voucherId: string, ledger: string) => `${voucherId}|${ledgerKey(ledger)}`
@@ -25,7 +38,31 @@ const days = (a: string, b: string) => Math.round((Date.parse(a) - Date.parse(b)
 
 /* ---------- Bank entries in the books ---------- */
 
-export type BankEntry = { v: Voucher; amount: number; dir: 'dep' | 'wd'; reco?: BankReco }
+export type BankEntry = { v: Voucher; amount: number; dir: 'dep' | 'wd'; reco?: BankReco; opening?: boolean }
+
+/** Opening BRS items as bank entries, so they get a bank date and can be matched like any voucher. */
+export function openingEntries(items: OpeningItem[], ledger: string, all: BankReco[]): BankEntry[] {
+  const k = ledgerKey(ledger)
+  const byId = new Map(all.map((r) => [r.id, r]))
+  return items.filter((o) => ledgerKey(o.ledger) === k).map((o) => ({
+    v: { id: o.id, no: 0, typeNo: 0, date: o.date, branch: '', type: 'Opening BRS' as VchType, postings: [], party: o.particulars, refNo: o.instrumentNo, narration: o.particulars },
+    amount: o.amount, dir: o.dir, reco: byId.get(recoId(o.id, ledger)), opening: true,
+  }))
+}
+
+/** Tally's rule: the bank can't clear an entry before the day it was made. */
+export function bankDateError(entryDate: string, bankDate: string) {
+  return bankDate && bankDate < entryDate ? 'The bank date cannot be before the voucher date.' : null
+}
+
+/** Ledger to suggest for a statement line that isn't in the books: bank charges and interest are the usual ones. */
+export function guessBankLedger(l: { narration: string; deposit: number }) {
+  const t = l.narration.toLowerCase()
+  if (!l.deposit && /charge|chrg|chg|fee|commission|sms|amc|min(imum)? bal|gst on|service tax|penal|debit card|annual/.test(t)) return 'Bank Charges'
+  if (l.deposit && /\bint(erest)?\b|\bint\.? ?(cr|pd|paid)\b|sb int/.test(t)) return 'Bank Interest Received'
+  return ''
+}
+
 
 /** Every posting to this bank ledger: a debit is money in (deposit), a credit is money out (withdrawal). */
 export function bankEntries(vouchers: Voucher[], ledger: string, all: BankReco[]): BankEntry[] {
@@ -44,14 +81,17 @@ export function bankEntries(vouchers: Voucher[], ledger: string, all: BankReco[]
 
 /* ---------- The reconciliation statement ---------- */
 
+const linesInUse = (entries: BankEntry[]) => new Set(entries.map((e) => e.reco?.lineId).filter(Boolean) as string[])
+
 export function reconcile(entries: BankEntry[], stmt: BankLine[], all: BankReco[], opening: number, asOn: string) {
   const upto = entries.filter((e) => e.v.date <= asOn)
-  const books = r2(opening + upto.reduce((t, e) => t + (e.dir === 'dep' ? e.amount : -e.amount), 0))
+  const books = r2(opening + upto.filter((e) => !e.opening).reduce((t, e) => t + (e.dir === 'dep' ? e.amount : -e.amount), 0))
   const open = upto.filter((e) => !e.reco || e.reco.bankDate > asOn)
   const notInBankDep = r2(open.filter((e) => e.dir === 'dep').reduce((t, e) => t + e.amount, 0))
   const notInBankWd = r2(open.filter((e) => e.dir === 'wd').reduce((t, e) => t + e.amount, 0))
   const asPerBank = r2(books - notInBankDep + notInBankWd)
-  const matched = new Set(all.map((r) => r.lineId).filter(Boolean))
+  // Only lines matched to an entry that still exists: a deleted or cancelled voucher frees its statement line.
+  const matched = linesInUse(entries)
   const inScope = stmt.filter((l) => l.date <= asOn)
   const extra = inScope.filter((l) => !l.ignored && !matched.has(l.id))
   const notInBooksDep = r2(extra.reduce((t, l) => t + l.deposit, 0))
@@ -73,7 +113,7 @@ export function reconcile(entries: BankEntry[], stmt: BankLine[], all: BankReco[
  * the narration breaks a tie. Each line and each entry is used once.
  */
 export function autoMatch(entries: BankEntry[], stmt: BankLine[], all: BankReco[]) {
-  const usedLines = new Set(all.map((r) => r.lineId).filter(Boolean))
+  const usedLines = linesInUse(entries)
   const pool = entries.filter((e) => !e.reco)
   const found: { e: BankEntry; l: BankLine }[] = []
   for (const l of [...stmt].sort((a, b) => a.date.localeCompare(b.date))) {

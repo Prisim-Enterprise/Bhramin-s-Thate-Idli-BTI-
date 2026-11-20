@@ -63,7 +63,7 @@ export type ManualType = 'Payment' | 'Receipt' | 'Journal' | 'Contra' | 'Purchas
 /** An invoice-style voucher as it was typed (Sales, Purchase, Debit Note, Credit Note), so it can be altered later. */
 export type InvoiceDraft = {
   party: string // party A/c name (customer, supplier, cash or bank)
-  items: { ledger: string; amount: number; gst: number }[] // sales / purchase ledgers, amount before GST, GST %
+  items: { ledger: string; amount: number; gst: number; gstAmt?: number }[] // sales / purchase ledgers, amount before GST, GST %, GST typed in rupees (wins over the %)
   roundOff: boolean
 }
 

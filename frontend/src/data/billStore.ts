@@ -37,7 +37,8 @@ export function nextBillId(): string {
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 export const lineBase = (l: BillLine) => r2(l.qty * l.rate)
-export const lineGst = (l: BillLine) => r2(l.qty * l.rate * (l.gst / 100))
+/** GST on a line: the amount typed in, or worked out from the GST %. */
+export const lineGst = (l: BillLine) => (l.gstAmt != null ? r2(l.gstAmt) : r2(l.qty * l.rate * (l.gst / 100)))
 
 /** Subtotal, tax, round off and total. Tax printed on the bill wins over tax worked out from the lines. */
 export function billSums(b: Bill) {
@@ -50,7 +51,7 @@ export function billSums(b: Bill) {
   // Small differences against the printed total (paise, rounding to the rupee) go to Round Off.
   const diff = b.billTotal != null ? r2(b.billTotal - worked) : 0
   const roundOff = Math.abs(diff) <= 5 ? diff : 0
-  return { subtotal, cgst, sgst, igst, roundOff, total: r2(worked + roundOff), mismatch: Math.abs(diff) > 5 ? diff : 0 }
+  return { subtotal, cgst, sgst, igst, gst: r2(cgst + sgst + igst), roundOff, total: r2(worked + roundOff), mismatch: Math.abs(diff) > 5 ? diff : 0 }
 }
 
 /** Who the bill is owed to: the vendor (credit bill) or the branch cash (paid on the spot). */
@@ -77,9 +78,8 @@ export function billPostings(b: Bill, fallbackLedger = 'Groceries Purchased', td
     byLedger.set(name, r2((byLedger.get(name) ?? 0) + lineBase(l)))
   }
   const out: VoucherLine[] = [...byLedger].map(([ledger, v]) => ({ ledger, dr: v, cr: 0 }))
-  // CGST and SGST go together as one GST line (IGST stays separate: it's inter-state tax).
-  if (s.cgst || s.sgst) out.push({ ledger: 'Input GST', dr: r2(s.cgst + s.sgst), cr: 0 })
-  if (s.igst) out.push({ ledger: 'Input IGST', dr: s.igst, cr: 0 })
+  // All GST (CGST, SGST, IGST) goes together as one Input GST line.
+  if (s.gst) out.push({ ledger: 'Input GST', dr: s.gst, cr: 0 })
   if (s.roundOff) out.push(s.roundOff > 0 ? { ledger: 'Round Off', dr: s.roundOff, cr: 0 } : { ledger: 'Round Off', dr: 0, cr: -s.roundOff })
   out.push({ ledger: partyOf(b), dr: 0, cr: s.total })
   return out.filter((l) => l.dr || l.cr)
