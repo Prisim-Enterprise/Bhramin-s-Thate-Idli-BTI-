@@ -72,6 +72,11 @@ export const KIND_RULES: Record<string, { write: [ModuleId, Action[]][]; remove:
   paySplits: { write: [['accounts', ['create', 'edit']], ['sales', ['edit']]], remove: [['accounts', ['delete', 'edit']]] },
   // Weekly partner statements (Swiggy, Zomato, Rapido, Mobikwik): deductions approved, receipts matched.
   settlements: { write: [['accounts', ['create', 'edit', 'approve']]], remove: [['accounts', ['delete', 'edit']]] },
+  // The company master (Gateway of Tally → Company Creation / Alteration): one record.
+  company: { write: [['accounts', ['create', 'edit']]], remove: [['accounts', ['delete']]] },
+  // Bank reconciliation: bank dates on vouchers, and the bank statement lines uploaded to match against.
+  bankRecos: { write: [['accounts', ['create', 'edit', 'approve']]], remove: [['accounts', ['edit', 'delete']]] },
+  bankLines: { write: [['accounts', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']]] },
 }
 // Uploading files (bills, receipts) and reading handwritten bills.
 export const FILE_RULE: [ModuleId, Action[]][] = [['ocr', ['create']], ['accounts', ['create']]]

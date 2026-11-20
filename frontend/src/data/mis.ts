@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { API_ON, getMisLayout, putMisLayout } from '../lib/api'
 import { billTotal, inMonth, type DayEntry } from './entries'
 import { ledgerKey } from './ledgerStore'
-import { moneyLines, type Data, type MoneyLine, type Scope } from './analytics'
+import { moneyLines, voucherIncome, type Data, type MoneyLine, type Scope } from './analytics'
 
 // MIS-format Profit & Loss, the way management reads it:
 //   Sales (Dine-in: cash + UPI · Online: Swiggy, Zomato, others)
@@ -84,7 +84,9 @@ export function misPnl(d: Data, s: Scope, map: Record<string, Head>) {
   const container = sum((e) => e.container)
   const roundOff = sum((e) => e.roundOff)
   const discount = sum((e) => e.discount)
-  const sales = r2(split.dineIn + split.online + container + roundOff - discount)
+  // Sales vouchers and Credit Notes entered in the Gateway, beside the Imprest Book.
+  const voucherSales = r2(voucherIncome(d, s, 'sales').reduce((t, l) => t + l.v, 0))
+  const sales = r2(split.dineIn + split.online + container + roundOff - discount + voucherSales)
 
   const by = (h: Head) => lines.filter((l) => headOf(l, map) === h)
   const total = (ls: MoneyLine[]) => r2(ls.reduce((t, l) => t + l.amount, 0))
@@ -95,11 +97,14 @@ export function misPnl(d: Data, s: Scope, map: Record<string, Head>) {
   const fixed = r2(fixedHeads.reduce((t, x) => t + x.v, 0))
   const variableItems = group(by('variable'))
   const variable = total(by('variable'))
-  const net = r2(gross - fixed - variable)
+  // Income posted by voucher in Account Books (round off on bills, interest, scrap sales …).
+  const other = voucherIncome(d, s)
+  const otherIncome = r2(other.reduce((t, l) => t + l.v, 0))
+  const net = r2(gross - fixed - variable + otherIncome)
   return {
     days: new Set(entries.map((e) => e.date)).size,
-    dineIn: split.dineIn, online: split.online, container, roundOff, discount, sales,
-    foodItems: group(foodLines), food, gross, fixedHeads, fixed, variableItems, variable, net,
+    dineIn: split.dineIn, online: split.online, container, roundOff, discount, voucherSales, sales,
+    foodItems: group(foodLines), food, gross, fixedHeads, fixed, variableItems, variable, otherIncome, net,
     lines,
   }
 }

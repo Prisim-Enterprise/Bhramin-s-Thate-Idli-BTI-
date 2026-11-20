@@ -54,7 +54,7 @@ export const HUBS: Record<HubId, { label: string; icon: LucideIcon; to: string; 
   accounting: {
     label: 'Accounting', icon: Calculator, to: '/admin/accounting', subtitle: 'Pick a report to open it',
     items: [
-      { to: '/admin/accounting/books', label: 'Account Books', icon: Library, module: 'accounts', desc: 'Cash book, ledgers and registers for every branch' },
+      { to: '/admin/accounting/tally', label: 'Gateway of Tally', icon: Library, module: 'accounts', desc: 'Company, ledgers, vouchers and Day Book, Tally style' },
       { to: '/admin/accounting/pnl', label: 'Profit & Loss', icon: Scale, module: 'accounts', desc: 'Did we make money this month?' },
       { to: '/admin/accounting/sales', label: 'Sales Report', icon: IndianRupee, module: 'sales', desc: 'How much each outlet sold' },
       { to: '/admin/accounting/expenses', label: 'Expenses Report', icon: Receipt, module: 'expenses', desc: 'Where the money went' },

@@ -1,7 +1,8 @@
 import { BILLS, type Bill, type BillLine } from './mock'
 import { imprestLedger } from './books'
-import { addLedger, addManualVoucher, deleteManualVoucher, fileToCloud, ledgerKey, type CustomLedger, type VoucherLine } from './ledgerStore'
+import { addLedger, addManualVoucher, deleteManualVoucher, fileToCloud, ledgerKey, manualVouchersNow, type CustomLedger, type VoucherLine } from './ledgerStore'
 import { cloudStore } from './cloudStore'
+import { withTds, workTds, type TdsResult } from './tds'
 
 // Bills in the OCR Bill Inbox, saved in this browser until the backend (Cloudflare) is ready.
 const bills = cloudStore<Bill>('prisim.bills', {
@@ -56,7 +57,19 @@ export function billSums(b: Bill) {
 export const partyOf = (b: Bill) => (b.type === 'credit' ? b.vendor.trim() : imprestLedger(b.branch))
 
 /** The purchase voucher lines: each item ledger debited, GST debited, the vendor or branch cash credited. */
-export function billPostings(b: Bill, fallbackLedger = 'Groceries Purchased'): VoucherLine[] {
+/** TDS on a credit bill for services (repairs, housekeeping, rent, professional fees…). Goods bills have none. */
+export function billTds(b: Bill, custom: CustomLedger[]): TdsResult {
+  const typed = partyOf(b)
+  const party = custom.find((c) => ledgerKey(c.name) === ledgerKey(typed))?.name ?? typed
+  // A new vendor on a credit bill becomes a supplier ledger when posted, so treat it as one already.
+  const asIf = b.type === 'credit' && !custom.some((c) => ledgerKey(c.name) === ledgerKey(party))
+    ? [...custom, { name: party, group: 'creditors' as const, opening: 0, addedBy: '', addedAt: '' }] : custom
+  const items = billPostings(b).filter((l) => l.dr).map((l) => ({ ledger: l.ledger, amount: l.dr }))
+  return workTds({ party, date: b.date, items, custom: asIf, vouchers: manualVouchersNow(), selfId: b.voucherId })
+}
+
+export function billPostings(b: Bill, fallbackLedger = 'Groceries Purchased', tds?: TdsResult): VoucherLine[] {
+  if (tds?.lines.length) return withTds(billPostings(b, fallbackLedger), partyOf(b), tds.lines)
   const s = billSums(b)
   const byLedger = new Map<string, number>()
   for (const l of b.lines) {
@@ -97,10 +110,13 @@ export function postBill(b: Bill, by: string, custom: CustomLedger[]): string | 
   if (b.type === 'credit' && !custom.some((c) => ledgerKey(c.name) === ledgerKey(party))) {
     addLedger({ name: party, group: 'creditors', opening: 0, addedBy: by, addedAt: now })
   }
-  const lines = billPostings(b).map((l) => (l.cr && l.ledger === typed ? { ...l, ledger: party } : l))
+  // Services: TDS held back from the vendor (goods: none).
+  const tds = billTds(b, custom)
+  for (const t of tds.lines) if (!custom.some((c) => ledgerKey(c.name) === ledgerKey(t.ledger))) addLedger({ name: t.ledger, group: 'duties', opening: 0, addedBy: by, addedAt: now })
+  const lines = billPostings(b, undefined, tds).map((l) => (l.cr && l.ledger === typed ? { ...l, ledger: party } : l))
   const id = 'bill-' + b.id + '-' + Date.now().toString(36)
   const ok = addManualVoucher({
-    id, type: 'Purchase', date: b.date, branch: b.branch, amount: s.total, lines, billId: b.id,
+    id, type: 'Purchase', date: b.date, branch: b.branch, amount: s.total, lines, billId: b.id, tds: tds.lines.length ? tds.lines : undefined,
     drLedger: lines.find((l) => l.dr)?.ledger, crLedger: party,
     narration: `Bill${b.invoiceNo ? ' no. ' + b.invoiceNo : ''} from ${b.vendor} (${b.id})`,
     receipt: b.file ? { name: b.file.name, type: b.file.type, size: b.file.size, key: b.file.key } : undefined,

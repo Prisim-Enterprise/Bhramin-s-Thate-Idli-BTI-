@@ -3,9 +3,13 @@
 
 export type RoleId = 'admin' | 'accountant' | 'kitchen' | 'cashier' | 'manager' | 'auditor'
 
+/** Roles that see only the Accounting section of the dashboard (sidebar, pages and first page after sign-in). */
+export const accountingOnly = (role: RoleId) => role === 'accountant'
+export const ACCOUNTING_HOME = '/admin/accounting'
+
 export const ROLES: { id: RoleId; name: string; desc: string }[] = [
   { id: 'admin', name: 'Admin', desc: 'Full access across all branches' },
-  { id: 'accountant', name: 'Accountant', desc: 'Bills, OCR, ledgers, food costing' },
+  { id: 'accountant', name: 'Accountant', desc: 'Accounting section only: Gateway of Tally, bills, reports, reconcile' },
   { id: 'kitchen', name: 'Kitchen Manager', desc: 'Indents, storage, purchase orders' },
   { id: 'cashier', name: 'Cashier', desc: 'Sales entry and day close' },
   { id: 'manager', name: 'Manager (per branch)', desc: 'Runs a single branch' },

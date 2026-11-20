@@ -2,6 +2,7 @@ import { cloudStore } from './cloudStore'
 import { API_ON, dataUrlToBlob, fileBlob, uploadFile } from '../lib/api'
 import { guessType, type PayoutType } from './entries'
 import type { GroupId } from './books'
+import type { TdsLine, TdsNatureId } from './tds'
 
 // Ledgers added by hand, and payments posted from an uploaded receipt.
 // Saved in this browser until the backend (Cloudflare) is ready.
@@ -12,6 +13,26 @@ export type CustomLedger = {
   opening: number // + Dr, - Cr
   addedBy: string
   addedAt: string
+  // Tally's ledger details (all optional)
+  alias?: string
+  mailingName?: string
+  address?: string
+  state?: string
+  pincode?: string
+  phone?: string
+  email?: string
+  gstRegType?: 'Regular' | 'Composition' | 'Unregistered' | 'Consumer'
+  gstin?: string
+  pan?: string
+  billWise?: boolean // maintain balances bill-by-bill (parties)
+  creditDays?: number // default credit period
+  gstRate?: number // GST % on sales / purchase / expense ledgers
+  bankAcNo?: string
+  ifsc?: string
+  tdsNature?: TdsNatureId | 'none' // service ledgers: which TDS applies (unset = guessed from the name)
+  tdsExempt?: boolean // party: don't deduct TDS (lower / nil deduction certificate, transporter declaration)
+  updatedBy?: string
+  updatedAt?: string
 }
 
 // key = where the file is kept in R2 (cloud). dataUrl = the file kept in this browser (before the cloud, or offline).
@@ -37,7 +58,14 @@ export async function keepFile(file: File, maxInBrowser = 1024 * 1024): Promise<
   return f
 }
 
-export type ManualType = 'Payment' | 'Receipt' | 'Journal' | 'Contra' | 'Purchase'
+export type ManualType = 'Payment' | 'Receipt' | 'Journal' | 'Contra' | 'Purchase' | 'Sales' | 'Debit Note' | 'Credit Note'
+
+/** An invoice-style voucher as it was typed (Sales, Purchase, Debit Note, Credit Note), so it can be altered later. */
+export type InvoiceDraft = {
+  party: string // party A/c name (customer, supplier, cash or bank)
+  items: { ledger: string; amount: number; gst: number }[] // sales / purchase ledgers, amount before GST, GST %
+  roundOff: boolean
+}
 
 /** One line of a voucher with several ledgers (e.g. a purchase bill split into vegetables, groceries, GST). */
 export type VoucherLine = { ledger: string; dr: number; cr: number }
@@ -54,6 +82,13 @@ export type ManualVoucher = {
   amount: number
   lines?: VoucherLine[] // several ledgers; when set, drLedger/crLedger are just the main ones
   billId?: string // posted from the OCR Bill Inbox
+  inv?: InvoiceDraft // invoice-style voucher, as typed
+  refNo?: string // supplier invoice no. / reference
+  cancelled?: boolean // Tally's "Cancel voucher": number kept, nothing posted
+  tds?: TdsLine[] // TDS held back from the supplier on this voucher (services only)
+  tdsOff?: boolean // TDS was due but turned off on this voucher
+  updatedBy?: string
+  updatedAt?: string
   narration: string
   receipt?: ReceiptFile
   addedBy: string
@@ -69,6 +104,8 @@ const vouchers = cloudStore<ManualVoucher>('prisim.manualVouchers', {
 
 export const useCustomLedgers = ledgers.use
 export const useManualVouchers = vouchers.use
+/** Every voucher entered by hand or posted from a bill, as it stands now. */
+export const manualVouchersNow = () => vouchers.get()
 
 export function addLedger(l: CustomLedger) {
   return ledgers.set([...ledgers.get(), l])
@@ -87,6 +124,34 @@ export function debitLines(m: ManualVoucher, imprestOf: (branch: string) => stri
 
 export function deleteManualVoucher(id: string) {
   vouchers.set(vouchers.get().filter((v) => v.id !== id))
+}
+
+/** Alter a voucher in place (same id, so it keeps its place and number). */
+export function updateManualVoucher(v: ManualVoucher) {
+  return vouchers.set(vouchers.get().map((x) => (x.id === v.id ? v : x)))
+}
+
+/** Alter a ledger. A new name is carried into every voucher that uses it, as Tally does. */
+export function alterLedger(oldName: string, next: CustomLedger) {
+  const k = ledgerKey(oldName)
+  const renamed = ledgerKey(next.name) !== k || next.name !== oldName
+  const list = ledgers.get()
+  const has = list.some((l) => ledgerKey(l.name) === k)
+  ledgers.set(has ? list.map((l) => (ledgerKey(l.name) === k ? next : l)) : [...list, next])
+  if (!renamed) return
+  const fix = (n?: string) => (n && ledgerKey(n) === k ? next.name : n)
+  const changed = (v: ManualVoucher) =>
+    [v.drLedger, v.crLedger, v.ledger, v.inv?.party, ...(v.lines ?? []).map((l) => l.ledger), ...(v.inv?.items ?? []).map((i) => i.ledger)].some((n) => n && ledgerKey(n) === k)
+  vouchers.set(vouchers.get().map((v) => !changed(v) ? v : {
+    ...v, drLedger: fix(v.drLedger), crLedger: fix(v.crLedger), ledger: fix(v.ledger),
+    lines: v.lines?.map((l) => ({ ...l, ledger: fix(l.ledger)! })),
+    inv: v.inv && { ...v.inv, party: fix(v.inv.party)!, items: v.inv.items.map((i) => ({ ...i, ledger: fix(i.ledger)! })) },
+  }))
+}
+
+/** Delete a ledger created by hand. The screen only offers this when no voucher uses it (Tally's rule). */
+export function deleteLedger(name: string) {
+  ledgers.set(ledgers.get().filter((l) => ledgerKey(l.name) !== ledgerKey(name)))
 }
 
 /** Debit and credit ledgers of a voucher (older vouchers stored only the debit side). */
@@ -109,7 +174,7 @@ export function groupOf(name: string, custom: CustomLedger[]): GroupId {
   if (/bank|o\/d a\/c|\bod a\/c/i.test(name)) return 'bank'
   if (/^(mobikwik|swiggy|zomato|rapido)/i.test(name)) return 'debtors'
   if (/^sales/i.test(name)) return 'sales'
-  if (/(output|input) (c|s|i)?gst/i.test(name)) return 'duties'
+  if (/(output|input) (c|s|i)?gst/i.test(name) || /^tds payable/i.test(name)) return 'duties'
   if (/^round off$/i.test(name)) return 'indirectInc'
   if (/traders|suppliers|enterprises|agencies|stores/i.test(name)) return 'creditors'
   return ({ expense: 'indirectExp', purchase: 'purchase', salary: 'liabilities' } as const)[guessType(name)]

@@ -150,6 +150,7 @@ export default function MisReport({ d, scope }: { d: Data; scope: Scope }) {
     { label: 'Container charges', get: (m) => m.container, kind: 'line', indent: 1 },
     ...(all.roundOff ? [{ label: 'Round off', get: (m: Mis) => m.roundOff, kind: 'line' as const, indent: 1 as const }] : []),
     { label: 'Less: settlement discounts', get: (m) => -m.discount, kind: 'line', indent: 1, minus: true },
+    ...(all.voucherSales ? [{ label: 'Sales vouchers (Gateway)', get: (m: Mis) => m.voucherSales, kind: 'line' as const, indent: 1 as const, minus: all.voucherSales < 0 }] : []),
     { label: 'Net sales', get: (m) => m.sales, kind: 'total' },
     { label: 'Less: Food cost', get: () => 0, kind: 'head' },
     ...names((m) => m.foodItems).map((k) => ({ label: k, get: (m: Mis) => -find(m.foodItems, k), kind: 'line' as const, indent: 1 as const, minus: true })),
@@ -169,6 +170,7 @@ export default function MisReport({ d, scope }: { d: Data; scope: Scope }) {
     { label: 'Less: Variable overheads', get: () => 0, kind: 'head' },
     ...names((m) => m.variableItems).map((k) => ({ label: k, get: (m: Mis) => -find(m.variableItems, k), kind: 'line' as const, indent: 1 as const, minus: true })),
     { label: 'Total variable overheads', get: (m) => -m.variable, kind: 'sub', minus: true },
+    ...(all.otherIncome ? [{ label: 'Add: Other income (from Account Books)', get: (m: Mis) => m.otherIncome, kind: 'sub' as const, minus: all.otherIncome < 0 }] : []),
     { label: 'Net profit', get: (m) => m.net, kind: 'grand' },
   ]
 

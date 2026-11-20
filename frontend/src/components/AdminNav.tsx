@@ -6,7 +6,7 @@ import {
   PackageCheck,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import type { ModuleId } from '../data/mock'
+import { accountingOnly, type ModuleId } from '../data/mock'
 import { HUBS } from './Layout'
 
 // Sidebar of the Centre Kitchen Dashboard: single tabs, sections and groups that fold open.
@@ -54,7 +54,7 @@ export const allSideLinks = (): SideLink[] => adminSidebar().flatMap((e) => (e.k
 const canOpen = (l: SideLink, can: (m: ModuleId) => boolean) => (l.anyOf ?? [l.module]).some((m) => can(m))
 
 export default function AdminNav({ slim, onPick }: { slim: boolean; onPick: () => void }) {
-  const { can } = useApp()
+  const { can, role } = useApp()
   const { pathname } = useLocation()
   const inGroup = (items: SideLink[]) => items.some((i) => pathname === i.to || (i.to !== '/admin' && pathname.startsWith(i.to + '/')))
   // Groups start open when you're on one of their pages; you can open or close the rest.
@@ -77,7 +77,7 @@ export default function AdminNav({ slim, onPick }: { slim: boolean; onPick: () =
 
   return (
     <nav className="flex-1 space-y-0.5" aria-label="Dashboard">
-      {adminSidebar().map((e) => {
+      {adminSidebar().filter((e) => !accountingOnly(role) || (e.kind === 'group' && e.label === 'Accounting')).map((e) => {
         if (e.kind === 'link') return canOpen(e, can) ? link(e) : null
         const items = e.items.filter((i) => canOpen(i, can))
         if (!items.length) return null

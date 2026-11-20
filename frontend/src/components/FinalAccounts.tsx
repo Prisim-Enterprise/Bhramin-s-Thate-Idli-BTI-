@@ -3,7 +3,7 @@ import { Card } from './ui'
 import { Big, ShareBar, Summary, Tile, downloadCsv, money, per100 } from './report'
 import { BRANCHES, branchName, inr } from '../data/mock'
 import { cashIn, inMonth } from '../data/entries'
-import { GROUPS, buildVouchers, imprestLedger, ledgerTotals, type GroupId } from '../data/books'
+import { GROUPS, buildVouchers, imprestLedger, isPnlGroup, ledgerTotals, type GroupId } from '../data/books'
 import { ledgerKey } from '../data/ledgerStore'
 import { byBranch, profitLoss, type Data, type Scope } from '../data/analytics'
 
@@ -14,7 +14,7 @@ import { byBranch, profitLoss, type Data, type Scope } from '../data/analytics'
 // Everything comes from Account Books (day entries from the Imprest Books, posted bills and vouchers).
 
 const amt = (n: number) => (n ? Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '')
-const PNL_GROUPS: GroupId[] = ['sales', 'indirectInc', 'purchase', 'directExp', 'indirectExp']
+const PNL_GROUPS: GroupId[] = (Object.keys(GROUPS) as GroupId[]).filter(isPnlGroup)
 const lastDay = (month?: string) => (month ? new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).toLocaleDateString('en-CA') : '9999-12-31')
 
 /* ---------- Income ---------- */

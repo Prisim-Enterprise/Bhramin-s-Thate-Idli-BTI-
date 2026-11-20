@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Scale } from 'lucide-react'
 import { Card } from '../../components/ui'
@@ -26,7 +27,9 @@ const pct = (n: number, of: number) => (of ? ((n / of) * 100).toFixed(1) + '%' :
 export default function ProfitLoss() {
   const { can } = useApp()
   const R = useReportData()
-  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('mis')
+  // ?tab=bs opens the Balance Sheet directly (used by the Gateway of Tally).
+  const [params] = useSearchParams()
+  const [tab, setTab] = useState<(typeof TABS)[number]['id']>(() => (TABS.find((t) => t.id === params.get('tab'))?.id ?? 'mis'))
   const p = profitLoss(R.d, R.scope)
   const branches = R.branch ? [] : byBranch(R.d, R.scope).sort((a, b) => b.p.net - a.p.net)
   const trend = daily(R.d, R.scope)
@@ -45,6 +48,7 @@ export default function ProfitLoss() {
     { label: 'Container charges', v: p.sales.container, kind: 'line' },
     ...(p.sales.roundOff ? [{ label: 'Round off', v: p.sales.roundOff, kind: 'line' as const }] : []),
     { label: 'Less: settlement discounts', v: -p.sales.discount, kind: 'line', minus: true },
+    ...p.voucherSalesByLedger.map((x) => ({ label: `${x.k} (sales vouchers)`, v: x.v, kind: 'line' as const, minus: x.v < 0 })),
     { label: 'Net income', v: p.income, kind: 'total' },
     { label: 'Cost of food (ingredients bought)', kind: 'head' },
     ...p.purchasesByLedger.map((x) => ({ label: x.k, v: -x.v, kind: 'line' as const, minus: true })),
@@ -53,6 +57,11 @@ export default function ProfitLoss() {
     ...p.expensesByLedger.map((x) => ({ label: x.k, v: -x.v, kind: 'line' as const, minus: true })),
     { label: 'Staff', kind: 'head' },
     ...p.salariesByLedger.map((x) => ({ label: x.k, v: -x.v, kind: 'line' as const, minus: true })),
+    // Income posted by voucher in Account Books (round off on bills, interest, scrap sales …).
+    ...(p.otherIncomeByLedger.length ? [
+      { label: 'Other income (from Account Books)', kind: 'head' as const },
+      ...p.otherIncomeByLedger.map((x) => ({ label: x.k, v: x.v, kind: 'line' as const, minus: x.v < 0 })),
+    ] : []),
     { label: 'Net profit', v: p.net, kind: 'grand' },
   ]
 

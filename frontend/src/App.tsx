@@ -7,7 +7,7 @@ import { DashboardsOffScreen } from './components/DashboardPower'
 import { useSystem } from './data/systemStore'
 import { useApp } from './context/AppContext'
 import { useAuth } from './context/AuthContext'
-import { MODULES, type ModuleId } from './data/mock'
+import { ACCOUNTING_HOME, MODULES, accountingOnly, type ModuleId } from './data/mock'
 
 import Login from './pages/Login'
 import Overview from './pages/admin/Overview'
@@ -24,6 +24,7 @@ import ProfitLoss from './pages/admin/ProfitLoss'
 import AccountingHub from './pages/admin/AccountingHub'
 import DayEntry from './pages/admin/DayEntry'
 import AccountBooks from './pages/admin/AccountBooks'
+import Gateway from './pages/admin/tally/Gateway'
 import KitchenHub from './pages/admin/KitchenHub'
 import BranchesIntegrations from './pages/admin/BranchesIntegrations'
 import PurchaseOrders from './pages/admin/PurchaseOrders'
@@ -86,7 +87,8 @@ const adminRoutes: R[] = [
   { path: 'accounting/vendors', module: 'purchase', el: <Vendors /> },
   { path: 'accounting/salary', module: 'salary', el: <SalaryReport /> },
   { path: 'accounting/deductions', module: 'deductions', el: <DeductionsReport /> },
-  { path: 'accounting/books', module: 'accounts', el: <AccountBooks /> },
+  { path: 'accounting/books', module: 'accounts', el: <AccountBooks /> }, // Display More Reports → Account Books
+  { path: 'accounting/tally', module: 'accounts', el: <Gateway /> },
   { path: 'accounting/mobikwik', module: 'sales', el: <MobikwikPayments /> },
   { path: 'accounting/reconcile', module: 'accounts', el: <WeeklyStatement /> },
   { path: 'accounting/weekly-statement', module: 'accounts', el: <Navigate to="/admin/accounting/reconcile" replace /> }, // old address
@@ -167,6 +169,8 @@ function Portal({ portal, routes }: { portal: 'admin' | 'control'; routes: R[] }
       <Routes>
         {routes.map((r) => (
           <Route key={r.path} path={r.path} element={
+            // An accounting-only login is sent back to Accounting from any other page.
+            portal === 'admin' && accountingOnly(role) && !(r.path === 'accounting' || r.path.startsWith('accounting/')) ? <Navigate to={ACCOUNTING_HOME} replace /> :
             <Guard module={r.module}>
               {portal === 'admin' && hubFor(r.path) && <BackLink hub={hubFor(r.path)!} />}
               {r.el}

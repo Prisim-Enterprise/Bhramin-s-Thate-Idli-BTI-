@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { AlertTriangle, Bell, BellRing, FileWarning, PackageX, Scale, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
-import { branchName } from '../data/mock'
+import { accountingOnly, branchName } from '../data/mock'
 import { niceDate, useEntries } from '../data/entries'
 import { LOW_SHARE, useStockAlerts, type StockAlert } from '../data/kitchen'
 import { partnerName, reconcileAlerts, useSettlements, type ReconcileAlert } from '../data/settlements'
@@ -67,10 +67,10 @@ function Bar({ items, tone }: { items: { id: string }[]; tone: string }) {
  * for 10 seconds (and as a device notification, once those are turned on). Everything stays listed under the bell.
  */
 export default function StockAlerts() {
-  const { can } = useApp()
+  const { can, role } = useApp()
   const auth = useAuth()
   const myBranch = (() => { const b = auth.session?.user.app_metadata?.branch as string | undefined; return b && b !== 'HO' ? b : null })()
-  const showStock = can('indent') || can('purchase') || can('ocr')
+  const showStock = !accountingOnly(role) && (can('indent') || can('purchase') || can('ocr'))
   const showRecon = can('accounts')
   const stock = useStockAlerts().filter((a) => showStock && (!myBranch || a.branch === myBranch))
   const entries = useEntries()

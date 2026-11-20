@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { roleOf, useAuth } from '../context/AuthContext'
-import { ROLES, type RoleId } from '../data/mock'
+import { ACCOUNTING_HOME, ROLES, accountingOnly, type RoleId } from '../data/mock'
 import { Field, inputCls } from '../components/ui'
 import { ADMIN_NAV, canSee } from '../components/Layout'
 import Logo, { RESTO_NAME } from '../components/Logo'
@@ -20,7 +20,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false)
 
   // First Centre Kitchen page this role may view, or null if none.
-  const firstPage = (role: RoleId) =>
+  const firstPage = (role: RoleId) => accountingOnly(role) ? ACCOUNTING_HOME :
     ADMIN_NAV.flatMap((g) => g.items).find((i) => canSee(i, (m) => !!permissions[role][m]?.includes('view')))?.to ?? null
 
   const submit = async (e: FormEvent) => {

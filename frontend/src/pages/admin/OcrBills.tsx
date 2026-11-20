@@ -8,7 +8,7 @@ import { KNOWN_LEDGERS, fmtDateTime } from '../../data/entries'
 import { BILL_SCRIPTS, BRANCHES, ROLES, branchName, inr, type Bill, type BillLine, type BillScript } from '../../data/mock'
 import { keepFile, openReceipt, useCustomLedgers, useManualVouchers } from '../../data/ledgerStore'
 import { API_ON, dataUrlToBlob, fileBlob, readUsage, type Usage } from '../../lib/api'
-import { billPostings, billSums, deleteBill, getBills, lineBase, lineGst, nextBillId, postBill, saveBill, unpostBill, useBills } from '../../data/billStore'
+import { billPostings, billSums, billTds, deleteBill, getBills, lineBase, lineGst, nextBillId, postBill, saveBill, unpostBill, useBills } from '../../data/billStore'
 import { ledgerFor, parseBillLines, readBillFile, type ReadOutcome } from '../../lib/readBill'
 import { knownVendors, lastItemsOf, matchVendor, pastItems } from '../../data/vendorMemory'
 import { pdfPageLines } from '../../lib/readImprestPdf'
@@ -298,7 +298,9 @@ export default function OcrBills() {
   const locked = posted || !canEdit || sel.status === 'processing'
   const updateLine = (i: number, patch: Partial<BillLine>) => update({ lines: sel.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) })
   const sums = billSums(sel)
-  const postings = billPostings(sel)
+  // Services carry TDS (held back from the vendor); goods don't.
+  const tds = billTds(sel, custom)
+  const postings = billPostings(sel, undefined, tds)
   const flow = sel.script === 'manual' ? MANUAL_STEPS : STEPS
   const step = sel.script === 'manual' ? (posted ? 2 : 1) : sel.status === 'processing' ? 1 : posted ? 3 : 2
   const taxInput = (k: 'cgst' | 'sgst' | 'igst', v: number) => (
@@ -527,6 +529,11 @@ export default function OcrBills() {
                       {(sums.igst > 0 || sel.igst != null) && <><dt className="text-slate-500">IGST</dt><dd className="text-right">{taxInput('igst', sums.igst)}</dd></>}
                       {sums.roundOff !== 0 && <><dt className="text-slate-500">Round off</dt><dd className="text-right tabular-nums">{inr(sums.roundOff)}</dd></>}
                       <dt className="font-semibold">Total</dt><dd className="text-right font-semibold tabular-nums">{inr(sums.total)}</dd>
+                      {tds.lines.flatMap((t) => [
+                        <dt key={t.ledger + ':t'} className="text-slate-500" title={t.note}>Less: TDS {t.section} @ {t.rate}%</dt>,
+                        <dd key={t.ledger + ':d'} className="text-right tabular-nums text-rose-700">−{inr(t.amount)}</dd>,
+                      ])}
+                      {tds.total > 0 && <><dt className="font-semibold">Payable to vendor</dt><dd className="text-right font-semibold tabular-nums">{inr(r2(sums.total - tds.total))}</dd></>}
                       <dt className="text-slate-500">Total printed on bill</dt>
                       <dd className="text-right">
                         <input type="number" step="0.01" aria-label="Total printed on bill" className={inputCls + ' !w-28 !py-1 text-right' + naCls} placeholder="N/A" value={sel.billTotal ?? ''} disabled={locked}
@@ -553,6 +560,12 @@ export default function OcrBills() {
                     </div>
                   </div>
 
+                  {(tds.lines.length > 0 || tds.notes.length > 0) && (
+                    <ul data-testid="bill-tds" className="mt-3 space-y-0.5 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">
+                      {tds.lines.map((t) => <li key={t.ledger}>TDS {t.note}.</li>)}
+                      {tds.notes.map((n) => <li key={n}>{n}</li>)}
+                    </ul>
+                  )}
                   {sums.mismatch !== 0 && (
                     <p className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
                       <AlertTriangle size={14} className="mt-0.5 shrink-0" />

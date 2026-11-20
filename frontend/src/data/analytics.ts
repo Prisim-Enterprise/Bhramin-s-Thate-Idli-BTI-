@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { BRANCHES, type Bill } from './mock'
 import { cashIn, inMonth, useEntries, type DayEntry, type PayoutType } from './entries'
-import { debitLines, groupOf, ledgerKey, reportOf, sides, useCustomLedgers, useManualVouchers, type CustomLedger, type ManualVoucher } from './ledgerStore'
+import { groupOf, ledgerKey, reportOf, sides, useCustomLedgers, useManualVouchers, type CustomLedger, type ManualVoucher } from './ledgerStore'
 import { imprestLedger } from './books'
 import { billSums, lineBase, useBills } from './billStore'
 
@@ -50,6 +50,12 @@ function spelling(d: Data) {
 export const isTransportInward = (ledger: string) => /freight|hamali|transport inward|cartage|loading|unloading/i.test(ledger)
 const asPurchase = <T extends string>(ledger: string, type: T): T | 'purchase' => (type === 'expense' && isTransportInward(ledger) ? 'purchase' : type)
 
+/** Every Dr / Cr line of a voucher, whether it has two ledgers or many. */
+export const allLines = (m: ManualVoucher) => {
+  const x = sides(m, imprestLedger)
+  return m.lines?.length ? m.lines : [{ ledger: x.dr, dr: m.amount, cr: 0 }, { ledger: x.cr, dr: 0, cr: m.amount }]
+}
+
 /** Expense, purchase and salary lines from day entries and Account Books. */
 export function moneyLines(d: Data, s: Scope = {}): MoneyLine[] {
   const same = spelling(d)
@@ -61,15 +67,18 @@ export function moneyLines(d: Data, s: Scope = {}): MoneyLine[] {
     ...entries.flatMap((e) => e.payouts.filter((p) => p.amount).map((p, i) => ({
       key: `${e.id}:${i}`, date: e.date, branch: e.branch, ledger: same(p.ledger), amount: p.amount, type: asPurchase(p.ledger, p.type), from: 'Day entry' as const,
     }))),
-    ...manual.flatMap((m) => debitLines(m, imprestLedger).flatMap((l, i) => {
+    ...manual.flatMap((m) => allLines(m).flatMap((l, i) => {
       const kind = reportOf(groupOf(l.ledger, d.custom))
       const type = kind && asPurchase(l.ledger, kind)
-      if (!type || !l.dr) return []
+      // A credit to a purchase or expense ledger (a Debit Note, a refund) takes the cost back down.
+      // Salary stays debit-only: crediting Salary Payable is the provision, not a refund.
+      const amount = type === 'salary' ? l.dr : r2(l.dr - l.cr)
+      if (!type || !amount) return []
       const bill = m.billId ? billOf.get(m.billId) : undefined
       return [{
-        key: `${m.id}:${i}`, date: m.date, branch: m.branch, ledger: same(l.ledger), amount: l.dr, type,
+        key: `${m.id}:${i}`, date: m.date, branch: m.branch, ledger: same(l.ledger), amount, type,
         from: m.billId ? ('Bill' as const) : ('Voucher' as const),
-        vendor: bill?.vendor || (m.type === 'Purchase' ? sides(m, imprestLedger).cr : undefined), billId: m.billId,
+        vendor: bill?.vendor || m.inv?.party || (m.type === 'Purchase' ? sides(m, imprestLedger).cr : undefined), billId: m.billId,
       }]
     })),
   ].sort((a, b) => b.date.localeCompare(a.date))
@@ -92,12 +101,33 @@ function salesOf(entries: DayEntry[]) {
   }
 }
 
+/**
+ * Income booked in Account Books by voucher rather than through the Imprest Book. Credit adds, debit takes away.
+ *  - kind 'sales': Sales vouchers and Credit Notes (Sales Accounts, Direct Incomes)
+ *  - kind 'other': round off on bills, interest, scrap sales … (Indirect Incomes)
+ */
+export function voucherIncome(d: Data, s: Scope, kind: 'sales' | 'other' | 'all' = 'other') {
+  const same = spelling(d)
+  const want = (g: string) => (kind !== 'other' && (g === 'sales' || g === 'directInc')) || (kind !== 'sales' && g === 'indirectInc')
+  const out: { ledger: string; v: number }[] = []
+  for (const m of d.manual) {
+    if (m.cancelled || (s.month && !m.date.startsWith(s.month)) || (s.branch && m.branch !== s.branch)) continue
+    for (const l of allLines(m)) {
+      if (want(groupOf(l.ledger, d.custom)) && (l.cr || l.dr)) out.push({ ledger: same(l.ledger), v: r2(l.cr - l.dr) })
+    }
+  }
+  return out
+}
+
 /** Profit & loss for a month and branch (or everything). */
 export function profitLoss(d: Data, s: Scope = {}) {
   const entries = inMonth(d.entries, s.month).filter((e) => !s.branch || e.branch === s.branch)
   const lines = moneyLines(d, s)
   const sales = salesOf(entries)
-  const income = r2(sales.food + sales.container + sales.roundOff - sales.discount)
+  // Sales vouchers (and Credit Notes) entered in the Gateway count as sales, beside the Imprest Book.
+  const salesVch = voucherIncome(d, s, 'sales')
+  const voucherSales = sum(salesVch, (l) => l.v)
+  const income = r2(sales.food + sales.container + sales.roundOff - sales.discount + voucherSales)
   const purchases = lines.filter((l) => l.type === 'purchase')
   const expenses = lines.filter((l) => l.type === 'expense')
   const salaries = lines.filter((l) => l.type === 'salary')
@@ -105,9 +135,13 @@ export function profitLoss(d: Data, s: Scope = {}) {
   const gross = r2(income - food)
   const running = sum(expenses, (l) => l.amount)
   const staff = sum(salaries, (l) => l.amount)
-  const net = r2(gross - running - staff)
+  const other = voucherIncome(d, s)
+  const otherIncome = sum(other, (l) => l.v)
+  const net = r2(gross - running - staff + otherIncome)
   return {
-    sales, income, food, gross, running, staff, net,
+    sales, income, food, gross, running, staff, net, otherIncome, voucherSales,
+    voucherSalesByLedger: byKey(salesVch, (l) => l.ledger, (l) => l.v).filter((x) => Math.abs(x.v) >= 0.005),
+    otherIncomeByLedger: byKey(other, (l) => l.ledger, (l) => l.v).filter((x) => Math.abs(x.v) >= 0.005),
     foodPct: sales.food ? (food / sales.food) * 100 : null,
     purchasesByLedger: byKey(purchases, (l) => l.ledger, (l) => l.amount),
     expensesByLedger: byKey(expenses, (l) => l.ledger, (l) => l.amount),
@@ -218,7 +252,9 @@ export function monthsWithData(d: Data): string[] {
 /** Saved data plus a month/branch picker, for a report page. */
 export function useReportData() {
   const entries = useEntries()
-  const manual = useManualVouchers()
+  // A cancelled voucher stays in the registers but counts nowhere.
+  const manualAll = useManualVouchers()
+  const manual = useMemo(() => manualAll.filter((m) => !m.cancelled), [manualAll])
   const custom = useCustomLedgers()
   const bills = useBills()
   const d = useMemo<Data>(() => ({ entries, manual, custom, bills }), [entries, manual, custom, bills])
