@@ -8,6 +8,7 @@ import {
 import { ledgerKey } from '../../../data/ledgerStore'
 import { readBankStatement } from '../../../lib/readBankStatement'
 import { useCompany } from '../../../data/company'
+import { partnerLedger, useSettlements } from '../../../data/settlements'
 import { T, amt, bal, tDate, useScreenKeys } from './ui'
 import type { Books } from './useBooks'
 import type { VoucherPrefill } from './VoucherForm'
@@ -18,6 +19,7 @@ export function BankReco({ books, ledger, asOn: asOn0, by, canEdit, onNewVoucher
   onNewVoucher: (type: 'Receipt' | 'Payment', prefill: VoucherPrefill) => void
 }) {
   const recos = useBankRecos()
+  const settlements = useSettlements()
   const allLines = useBankLines()
   const openItems = useBankOpening()
   const company = useCompany()
@@ -116,10 +118,12 @@ ${r.extra.length ? `<h3>On the bank statement, not in the books</h3><table><tr><
     onNewVoucher(dep ? 'Receipt' : 'Payment', {
       date: l.date, refNo: l.ref || undefined, narration: l.narration,
       lines: dep
-        ? [{ side: 'Cr', ledger: guessBankLedger(l), amount: l.deposit }, { side: 'Dr', ledger, amount: l.deposit }]
+        ? [{ side: 'Cr', ledger: payoutOf(l) ?? guessBankLedger(l), amount: l.deposit }, { side: 'Dr', ledger, amount: l.deposit }]
         : [{ side: 'Dr', ledger: guessBankLedger(l), amount: l.withdrawal }, { side: 'Cr', ledger, amount: l.withdrawal }],
     })
   }
+  // A Swiggy / Zomato payout already matched to its weekly statement goes to that partner's ledger for the outlet.
+  function payoutOf(l: BankLine) { const st = settlements.find((x) => x.bankLineId === l.id); return st ? partnerLedger(st.partner, st.branch) : undefined }
   const matchTo = (l: BankLine, voucherId: string) => { setBankDate(voucherId, ledger, l.date, by, l.id); setMsg({ tone: 'ok', text: `Matched with the statement line of ${tDate(l.date)}.` }) }
   const open = entries.filter((e) => !e.reco)
 

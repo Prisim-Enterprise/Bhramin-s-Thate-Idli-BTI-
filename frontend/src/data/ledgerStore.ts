@@ -87,6 +87,7 @@ export type ManualVoucher = {
   cancelled?: boolean // Tally's "Cancel voucher": number kept, nothing posted
   tds?: TdsLine[] // TDS held back from the supplier on this voucher (services only)
   tdsOff?: boolean // TDS was due but turned off on this voucher
+  settlementId?: string // posted from an approved Swiggy / Zomato / Rapido / Mobikwik weekly statement
   updatedBy?: string
   updatedAt?: string
   narration: string
@@ -106,6 +107,8 @@ export const useCustomLedgers = ledgers.use
 export const useManualVouchers = vouchers.use
 /** Every voucher entered by hand or posted from a bill, as it stands now. */
 export const manualVouchersNow = () => vouchers.get()
+/** Every ledger created by hand (or by a posting), as it stands now. */
+export const customLedgersNow = () => ledgers.get()
 
 export function addLedger(l: CustomLedger) {
   return ledgers.set([...ledgers.get(), l])

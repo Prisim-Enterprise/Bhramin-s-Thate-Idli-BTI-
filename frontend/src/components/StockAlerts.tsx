@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Bell, BellRing, FileWarning, PackageX, Scale, X } from 'lucide-react'
+import { AlertTriangle, Bell, BellRing, FileWarning, PackageX, Scale, Volume2, VolumeX, X } from 'lucide-react'
+import { playAlertSound, setSoundOn, soundOn } from '../lib/alertSound'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { accountingOnly, branchName } from '../data/mock'
 import { niceDate, useEntries } from '../data/entries'
 import { LOW_SHARE, useStockAlerts, type StockAlert } from '../data/kitchen'
-import { partnerName, reconcileAlerts, useSettlements, type ReconcileAlert } from '../data/settlements'
+import { partnerName, reconcileAlerts, usePartnerTerms, useSettlements, type ReconcileAlert } from '../data/settlements'
 
 const store = (key: string) => ({
   read: (): string[] => { try { return JSON.parse(localStorage.getItem(key) ?? '[]') } catch { return [] } },
@@ -75,7 +76,9 @@ export default function StockAlerts() {
   const stock = useStockAlerts().filter((a) => showStock && (!myBranch || a.branch === myBranch))
   const entries = useEntries()
   const settlements = useSettlements()
-  const recon = useMemo(() => showRecon ? reconcileAlerts(entries, settlements).filter((a) => !myBranch || a.branch === myBranch) : [], [entries, settlements, showRecon, myBranch])
+  const terms = usePartnerTerms()
+  const recon = useMemo(() => showRecon ? reconcileAlerts(entries, settlements, terms).filter((a) => !myBranch || a.branch === myBranch) : [], [entries, settlements, terms, showRecon, myBranch])
+  const [sound, setSound] = useState(soundOn())
   const [open, setOpen] = useState(false)
   const [perm, setPerm] = useState(canPop() ? Notification.permission : 'denied')
   const box = useRef<HTMLDivElement>(null)
@@ -86,6 +89,10 @@ export default function StockAlerts() {
   const [reconPop, setReconPop] = useFresh(recon, showRecon, reconSeen, reconVisit, (fresh) =>
     notify(fresh.length === 1 ? 'Reconcile not matching' : `${fresh.length} statements not matching`,
       fresh.slice(0, 3).map((a) => `${reconTitle(a)}, week of ${niceDate(a.week)}: ${a.problems[0]}`).join('; ') + (fresh.length > 3 ? `; +${fresh.length - 3} more` : ''), 'bti-reconcile'))
+
+  // A reconcile that doesn't match is announced with a sound whenever its message comes up.
+  const reconKey = reconPop.map((a) => a.id).join(',')
+  useEffect(() => { if (reconKey) playAlertSound() }, [reconKey])
 
   useEffect(() => {
     if (!open) return
@@ -174,7 +181,7 @@ export default function StockAlerts() {
               <section>
                 <div className="border-b border-slate-100 px-4 py-3">
                   <p className="text-sm font-semibold text-slate-900">Reconcile not matching</p>
-                  <p className="text-xs text-slate-500">Partner statements where sales, net payout or money received don't tally.</p>
+                  <p className="text-xs text-slate-500">Partner statements where sales, net payout or money received don't tally, or commission or advertisement is above the agreed terms.</p>
                 </div>
                 <ul className="divide-y divide-slate-100">
                   {recon.map((a) => (
@@ -215,6 +222,15 @@ export default function StockAlerts() {
               </section>
             )}
           </div>
+          {showRecon && (
+            <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-2.5 text-xs">
+              <button aria-label={sound ? 'Turn alert sound off' : 'Turn alert sound on'} className="inline-flex items-center gap-1.5 font-medium text-[#7a2228] hover:underline"
+                onClick={() => { const next = !sound; setSoundOn(next); setSound(next); if (next) playAlertSound(true) }}>
+                {sound ? <Volume2 size={14} /> : <VolumeX size={14} />} Alert sound {sound ? 'on' : 'off'}
+              </button>
+              {sound && <button className="text-slate-500 hover:underline" onClick={() => playAlertSound(true)}>Play test sound</button>}
+            </div>
+          )}
           {canPop() && perm !== 'granted' && (
             <div className="border-t border-slate-100 bg-slate-50 px-4 py-2.5 text-xs">
               {perm === 'denied'

@@ -59,9 +59,10 @@ export const KIND_RULES: Record<string, { write: [ModuleId, Action[]][]; remove:
   dayEntries: { write: [['accounts', ['create', 'edit']], ['sales', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']]] },
   bills: { write: [['ocr', ['create', 'edit']]], remove: [['ocr', ['delete', 'edit']]] },
   // Posting a checked bill writes a voucher (and a vendor ledger), so bill approvers may too.
-  ledgers: { write: [['accounts', ['create', 'edit']], ['ocr', ['approve']]], remove: [['accounts', ['delete', 'edit']]] },
+  ledgers: { write: [['accounts', ['create', 'edit', 'approve']], ['ocr', ['approve']]], remove: [['accounts', ['delete', 'edit']]] },
   // Branch managers report petty expenses as journals (Expenses: create); a login tied to one branch stays limited to it.
-  manualVouchers: { write: [['accounts', ['create', 'edit']], ['ocr', ['approve']], ['expenses', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']], ['ocr', ['approve']], ['expenses', ['edit']]] },
+  // Approving a partner's weekly statement posts (or, when an approval is taken back, removes) its Journal: accounts approvers too.
+  manualVouchers: { write: [['accounts', ['create', 'edit', 'approve']], ['ocr', ['approve']], ['expenses', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit', 'approve']], ['ocr', ['approve']], ['expenses', ['edit']]] },
   // Closing stock counted at outlets (Inventory → Closing Stock Tracker).
   closingStock: { write: [['indent', ['create', 'edit']], ['purchase', ['create', 'edit']]], remove: [['indent', ['delete', 'edit']]] },
   // Centre Kitchen: goods received and goods issued to outlets (kept under branch CK).
@@ -79,6 +80,8 @@ export const KIND_RULES: Record<string, { write: [ModuleId, Action[]][]; remove:
   bankLines: { write: [['accounts', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']]] },
   // Opening BRS: cheques and deposits from before the books started that the bank hadn't cleared.
   bankOpening: { write: [['accounts', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']]] },
+  // Partner terms: commission agreed with Swiggy / Zomato / … and the approved advertisement budget (set by approvers).
+  partnerTerms: { write: [['accounts', ['approve']]], remove: [['accounts', ['approve', 'delete']]] },
 }
 // Uploading files (bills, receipts) and reading handwritten bills.
 export const FILE_RULE: [ModuleId, Action[]][] = [['ocr', ['create']], ['accounts', ['create']]]

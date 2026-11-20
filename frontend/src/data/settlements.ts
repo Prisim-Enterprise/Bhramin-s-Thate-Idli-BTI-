@@ -1,6 +1,9 @@
 import { cloudStore } from './cloudStore'
 import { cashIn, type DayEntry } from './entries'
-import type { ReceiptFile } from './ledgerStore'
+import { addLedger, addManualVoucher, customLedgersNow, deleteManualVoucher, ledgerKey, manualVouchersNow, updateManualVoucher, type ReceiptFile, type VoucherLine } from './ledgerStore'
+import type { GroupId } from './books'
+import type { BankLine } from './banking'
+import { branchName } from './mock'
 
 // Money that comes in through payment partners, and the weekly statements they settle with.
 //  - Mobikwik: UPI and card payments at the counter. The Imprest Book has one Mobikwik figure a day;
@@ -66,6 +69,9 @@ export type Settlement = {
   utr?: string // bank reference
   note: string
   statementNet?: number | null // net payout as printed on the statement (to cross-check our working)
+  commissionBase?: number | null // the amount commission is charged on (Zomato: commissionable value); gross when not given
+  bankLineId?: string // the bank statement line the payout was matched to (Banking → Bank Reconciliation)
+  receivedFrom?: string // bank ledger the payout reached, when matched from a bank statement
   file?: ReceiptFile // the uploaded statement
   readNote?: string // what the reader found
   addedBy: string
@@ -77,10 +83,114 @@ export type Settlement = {
 const settlements = cloudStore<Settlement>('prisim.settlements', { kind: 'settlements', idOf: (s) => s.id })
 export const useSettlements = settlements.use
 export const settlementId = (partner: string, branch: string, week: string) => `${partner}:${branch}:${week}`
-export function saveSettlement(s: Settlement) {
-  return settlements.set([s, ...settlements.get().filter((x) => x.id !== s.id)])
+export function saveSettlement(s: Settlement, by = s.updatedBy ?? s.addedBy) {
+  const ok = settlements.set([s, ...settlements.get().filter((x) => x.id !== s.id)])
+  syncSettlementVoucher(s, by)
+  return ok
 }
-export function deleteSettlement(id: string) { settlements.set(settlements.get().filter((x) => x.id !== id)) }
+export function deleteSettlement(id: string) {
+  settlements.set(settlements.get().filter((x) => x.id !== id))
+  if (manualVouchersNow().some((v) => v.id === stlVoucherId(id))) deleteManualVoucher(stlVoucherId(id))
+}
+
+/* ---------- Partner terms: the agreed commission and the approved advertisement budget ---------- */
+
+// Commission is fixed by the contract; advertisement is approved by management as a % of sales or a cost per week.
+// Set for all outlets of a partner (branch '*'), or for one outlet when it differs.
+export type PartnerTerms = {
+  id: string // partner:branch ('*' = all outlets)
+  partner: PartnerId
+  branch: string
+  commissionPct: number | null // agreed commission, % of the commissionable value
+  adsMode: 'pct' | 'amount' | null // approved advertisement: % of the week's sales, or ₹ per week
+  adsValue: number | null
+  by: string
+  at: string
+}
+const terms = cloudStore<PartnerTerms>('prisim.partnerTerms', { kind: 'partnerTerms', idOf: (t) => t.id })
+export const usePartnerTerms = terms.use
+export const termsId = (partner: string, branch: string) => `${partner}:${branch}`
+export function saveTerms(t: Omit<PartnerTerms, 'id'>) {
+  const id = termsId(t.partner, t.branch)
+  const empty = t.commissionPct == null && (t.adsMode == null || t.adsValue == null)
+  terms.set([...(empty ? [] : [{ ...t, id }]), ...terms.get().filter((x) => x.id !== id)])
+}
+/** The terms for one outlet: its own, otherwise the partner's terms for all outlets. */
+export function termsFor(all: PartnerTerms[], partner: string, branch: string): PartnerTerms | null {
+  return all.find((t) => t.id === termsId(partner, branch)) ?? all.find((t) => t.id === termsId(partner, '*')) ?? null
+}
+
+/* ---------- Posting an approved statement to the books ---------- */
+
+// When every deduction is approved, one Journal on the last day of the week takes them out of the partner's ledger:
+//   Dr Commission, Advertisement, Payment Charges, Other Charges (expenses) · Dr Input GST (GST on the partner's fees)
+//   Dr GST paid by the partner u/s 9(5) · Dr TDS Receivable · Cr Other Income (money added back, like a cancellation refund)
+//   Cr "<Partner> - <Outlet>" (the ledger the day entries debit with the partner's sales)
+// The partner's ledger is then left with exactly what they pay into the bank. Removing an approval takes the Journal out again.
+export const stlVoucherId = (id: string) => 'stl-' + id.replace(/[^a-z0-9-]+/gi, '-')
+export const partnerLedger = (partner: string, branch: string) => `${partnerName(partner)} - ${branchName(branch)}`
+
+export function settlementLines(s: Settlement): { ledger: string; group: GroupId; dr: number; cr: number }[] {
+  const P = partnerName(s.partner)
+  const sum = (f: (d: Deduction) => boolean) => r2(s.deductions.filter(f).reduce((t, d) => t + d.amount, 0))
+  const is95 = (d: Deduction) => /9\s*\(\s*5\s*\)/.test(d.label)
+  const out: { ledger: string; group: GroupId; dr: number; cr: number }[] = []
+  const put = (ledger: string, group: GroupId, v: number) => { if (v > 0.004) out.push({ ledger, group, dr: v, cr: 0 }); else if (v < -0.004) out.push({ ledger, group, dr: 0, cr: -v }) }
+  put(P + ' Commission', 'indirectExp', sum((d) => d.kind === 'commission'))
+  put(P + ' Advertisement', 'indirectExp', sum((d) => d.kind === 'ads'))
+  put(P + ' Payment Charges', 'indirectExp', sum((d) => d.kind === 'gateway'))
+  put('Input GST', 'duties', sum((d) => d.kind === 'gst' && !is95(d)))
+  put('GST paid by ' + P + ' u/s 9(5)', 'duties', sum((d) => d.kind === 'gst' && is95(d)))
+  put('TDS Receivable', 'loansAdvances', sum((d) => d.kind === 'tds'))
+  put(P + ' Other Charges', 'indirectExp', sum((d) => d.kind === 'other' && d.amount > 0))
+  put(P + ' Other Income', 'indirectInc', sum((d) => d.kind === 'other' && d.amount < 0))
+  const net = r2(out.reduce((t, l) => t + l.dr - l.cr, 0))
+  put(partnerLedger(s.partner, s.branch), 'debtors', -net)
+  return out
+}
+
+/** Post, re-post or take out the Journal for a statement, so the books follow its approvals. */
+export function syncSettlementVoucher(s: Settlement, by: string) {
+  const id = stlVoucherId(s.id)
+  const had = manualVouchersNow().find((v) => v.id === id)
+  const ready = s.gross != null && s.deductions.some((d) => d.amount) && s.deductions.every((d) => !d.amount || d.approvedBy)
+  if (!ready) { if (had) deleteManualVoucher(id); return }
+  const posting = settlementLines(s)
+  const have = new Set(customLedgersNow().map((l) => ledgerKey(l.name)))
+  const now = new Date().toISOString()
+  for (const l of posting) if (!have.has(ledgerKey(l.ledger))) { addLedger({ name: l.ledger, group: l.group, opening: 0, addedBy: by, addedAt: now }); have.add(ledgerKey(l.ledger)) }
+  const lines: VoucherLine[] = posting.map((l) => ({ ledger: l.ledger, dr: l.dr, cr: l.cr }))
+  const P = partnerName(s.partner)
+  const v = {
+    id, type: 'Journal' as const, date: weekEndOf(s.date), branch: s.branch, amount: r2(lines.reduce((t, l) => t + l.dr, 0)), lines,
+    drLedger: lines.find((l) => l.dr)?.ledger, crLedger: partnerLedger(s.partner, s.branch), settlementId: s.id,
+    narration: `${P} weekly statement ${s.date} to ${weekEndOf(s.date)}: commission, advertisement and charges kept by ${P}${s.utr ? ' (UTR ' + s.utr + ')' : ''}`,
+    addedBy: had?.addedBy ?? by, addedAt: had?.addedAt ?? now, ...(had ? { updatedBy: by, updatedAt: now } : {}),
+  }
+  if (had && JSON.stringify(had.lines) === JSON.stringify(v.lines) && had.date === v.date && had.narration === v.narration) return
+  if (had) updateManualVoucher(v); else addManualVoucher(v)
+}
+
+/* ---------- The payout in the bank ---------- */
+
+// Who the credit comes from, as it shows on a bank statement (Swiggy pays as Bundl Technologies, Rapido as Roppen).
+const PAYER: Record<string, RegExp> = {
+  swiggy: /swiggy|bundl/i, zomato: /zomato|eternal\s+l(imi)?te?d/i, rapido: /rapido|roppen/i, mobikwik: /mobikwik/i,
+}
+
+/**
+ * The bank credit that is this statement's payout: from the partner, the same amount as our net receipts (within ₹1),
+ * on or after the week's last day and within three weeks. A UTR on the statement that appears in the bank line wins.
+ * Returns nothing when there is no clear single match.
+ */
+export function payoutCredit(s: Settlement, net: number | null, lines: BankLine[], taken: Set<string>): BankLine | null {
+  const from = lines.filter((l) => !l.ignored && l.deposit > 0 && !taken.has(l.id) && !!PAYER[s.partner]?.test(l.narration + ' ' + l.ref))
+  if (s.utr) { const u = from.find((l) => (l.narration + ' ' + l.ref).includes(s.utr!)); if (u) return u }
+  if (net == null || net <= 0) return null
+  const end = weekEndOf(s.date), last = addDays(end, 21)
+  const near = from.filter((l) => Math.abs(l.deposit - net) <= TOLERANCE && l.date >= end && l.date <= last)
+  return near.length === 1 ? near[0] : null
+}
 
 /* ---------- Weeks (Monday to Sunday, like the partners' payout weeks) ---------- */
 
@@ -110,10 +220,17 @@ export type StatementRow = {
   payoutDiff: number | null // our net receipts − the statement's own net payout
   receiptDiff: number | null // received − net receipts
   pending: number // deductions not yet approved
+  commissionBase: number | null // what the commission is charged on
+  commissionPct: number | null // commission charged, % of its base
+  agreedPct: number | null // commission agreed in the partner terms
+  commissionExtra: number | null // commission charged above the agreed % (only overcharges count)
+  adsPct: number | null // advertisement, % of the statement's sales
+  adsLimit: number | null // approved advertisement for the week
+  adsOver: number | null // advertisement above the approved budget
   status: 'no statement' | 'waiting approval' | 'not received' | 'difference' | 'matched'
 }
 
-export function statementRow(partner: PartnerId, branch: string, week: string, entries: DayEntry[], s: Settlement | null): StatementRow {
+export function statementRow(partner: PartnerId, branch: string, week: string, entries: DayEntry[], s: Settlement | null, allTerms: PartnerTerms[] = []): StatementRow {
   const field = PARTNERS.find((p) => p.id === partner)!.field
   const end = weekEndOf(week)
   const books = r2(entries.filter((e) => e.branch === branch && e.date >= week && e.date <= end).reduce((t, e) => t + e[field], 0))
@@ -130,12 +247,25 @@ export function statementRow(partner: PartnerId, branch: string, week: string, e
   const payoutDiff = net == null || s?.statementNet == null ? null : r2(net - s.statementNet)
   const receiptDiff = net == null || received == null ? null : r2(received - net)
   const pending = ded.filter((d) => d.amount && !d.approvedBy).length
+  // Commission is fixed by contract; advertisement must stay within what was approved.
+  const t = termsFor(allTerms, partner, branch)
+  const commissionBase = gross == null ? null : (s?.commissionBase ?? gross)
+  const commissionPct = commissionBase ? r2(commission / commissionBase * 100) : null
+  const agreedPct = t?.commissionPct ?? null
+  const commissionExtra = agreedPct == null || commissionBase == null || !commission ? null : r2(Math.max(0, commission - commissionBase * agreedPct / 100))
+  const adsPct = gross ? r2(ads / gross * 100) : null
+  const adsLimit = !t?.adsMode || t.adsValue == null ? null : t.adsMode === 'pct' ? (gross == null ? null : r2(gross * t.adsValue / 100)) : t.adsValue
+  const adsOver = adsLimit == null || gross == null ? null : r2(Math.max(0, ads - adsLimit))
+  const overTerms = (commissionExtra ?? 0) > TOLERANCE || (adsOver ?? 0) > TOLERANCE
   const status: StatementRow['status'] = !s || gross == null ? 'no statement'
     : pending ? 'waiting approval'
-    : received == null ? 'not received'
-    : Math.abs(receiptDiff ?? 0) > TOLERANCE || Math.abs(salesDiff ?? 0) > TOLERANCE || Math.abs(payoutDiff ?? 0) > TOLERANCE ? 'difference'
+    : received == null ? (overTerms ? 'difference' : 'not received')
+    : Math.abs(receiptDiff ?? 0) > TOLERANCE || Math.abs(salesDiff ?? 0) > TOLERANCE || Math.abs(payoutDiff ?? 0) > TOLERANCE || overTerms ? 'difference'
     : 'matched'
-  return { id: settlementId(partner, branch, week), partner, branch, week, books, s, gross, commission, ads, charges, deductions, net, received, salesDiff, payoutDiff, receiptDiff, pending, status }
+  return {
+    id: settlementId(partner, branch, week), partner, branch, week, books, s, gross, commission, ads, charges, deductions, net, received, salesDiff, payoutDiff, receiptDiff, pending, status,
+    commissionBase, commissionPct, agreedPct, commissionExtra, adsPct, adsLimit, adsOver,
+  }
 }
 
 /* ---------- Alerts: a statement that doesn't match ---------- */
@@ -147,23 +277,25 @@ export type ReconcileAlert = {
 }
 
 /** Every statement where something doesn't tally: sales vs books, our net vs the statement, or money received vs net. */
-export function reconcileAlerts(entries: DayEntry[], all: Settlement[]): ReconcileAlert[] {
+export function reconcileAlerts(entries: DayEntry[], all: Settlement[], allTerms: PartnerTerms[] = []): ReconcileAlert[] {
   const inr = (n: number) => '₹' + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })
   const off = (n: number | null): n is number => n != null && Math.abs(n) > TOLERANCE
   const out: ReconcileAlert[] = []
   for (const s of all) {
-    const r = statementRow(s.partner, s.branch, s.date, entries, s)
+    const r = statementRow(s.partner, s.branch, s.date, entries, s, allTerms)
     const problems: string[] = []
+    if (off(r.commissionExtra)) problems.push(`Commission ${r.commissionPct}% charged vs ${r.agreedPct}% agreed: ${inr(r.commissionExtra)} extra`)
+    if (off(r.adsOver)) problems.push(`Advertisement ${inr(r.ads)} is ${inr(r.adsOver)} over the approved ${inr(r.adsLimit ?? 0)}`)
     if (off(r.salesDiff)) problems.push(`Statement sales ${r.salesDiff > 0 ? 'more' : 'less'} than the Imprest Book by ${inr(r.salesDiff)}`)
     if (off(r.payoutDiff)) problems.push(`Our net receipts differ from the statement's net payout by ${inr(r.payoutDiff)}`)
     if (off(r.receiptDiff)) problems.push(r.receiptDiff < 0 ? `Received ${inr(r.receiptDiff)} less than net receipts` : `Received ${inr(r.receiptDiff)} more than net receipts`)
-    if (problems.length) out.push({ id: `${r.id}|${r.salesDiff ?? ''}|${r.payoutDiff ?? ''}|${r.receiptDiff ?? ''}`, rowId: r.id, partner: s.partner, branch: s.branch, week: s.date, problems })
+    if (problems.length) out.push({ id: `${r.id}|${r.salesDiff ?? ''}|${r.payoutDiff ?? ''}|${r.receiptDiff ?? ''}|${r.commissionExtra ?? ''}|${r.adsOver ?? ''}`, rowId: r.id, partner: s.partner, branch: s.branch, week: s.date, problems })
   }
   return out.sort((a, b) => b.week.localeCompare(a.week) || a.partner.localeCompare(b.partner))
 }
 
 /** Every partner × outlet that sold something that week or has a statement for it. */
-export function weekRows(week: string, entries: DayEntry[], all: Settlement[], branch = '', partner = ''): StatementRow[] {
+export function weekRows(week: string, entries: DayEntry[], all: Settlement[], branch = '', partner = '', allTerms: PartnerTerms[] = []): StatementRow[] {
   const end = weekEndOf(week)
   const keys = new Set<string>()
   for (const e of entries) {
@@ -174,6 +306,6 @@ export function weekRows(week: string, entries: DayEntry[], all: Settlement[], b
   const byId = new Map(all.map((s) => [s.id, s]))
   return [...keys].map((k) => {
     const [p, b] = k.split('|') as [PartnerId, string]
-    return statementRow(p, b, week, entries, byId.get(settlementId(p, b, week)) ?? null)
+    return statementRow(p, b, week, entries, byId.get(settlementId(p, b, week)) ?? null, allTerms)
   }).sort((a, b) => a.partner.localeCompare(b.partner) || a.branch.localeCompare(b.branch))
 }

@@ -300,23 +300,23 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
             )}
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[680px] text-sm">
+              <table className="w-full text-sm sm:min-w-[680px]">
                 <thead>
                   <tr className="border-b border-slate-300 text-left text-xs font-semibold text-slate-600">
-                    <th className="px-4 py-2">Date</th>
-                    <th className="px-4 py-2">Particulars</th>
-                    <th className="px-4 py-2">Vch Type</th>
-                    <th className="px-4 py-2 text-right">Vch No.</th>
-                    <th className="px-4 py-2 text-right">Debit</th>
-                    <th className="px-4 py-2 text-right">
+                    <th className="px-2 py-2 sm:px-4">Date</th>
+                    <th className="px-2 py-2 sm:px-4">Particulars</th>
+                    <th className="hidden px-4 py-2 sm:table-cell">Vch Type</th>
+                    <th className="hidden px-4 py-2 text-right sm:table-cell">Vch No.</th>
+                    <th className="min-w-[4.5rem] px-2 py-2 text-right sm:px-4">Debit</th>
+                    <th className="min-w-[4.5rem] px-2 py-2 text-right sm:px-4">
                       Credit
-                      {(periodFrom || periodTo) && <span className="block whitespace-nowrap font-normal text-slate-400">{tallyDate(periodFrom || periodTo)} to {tallyDate(periodTo || periodFrom)}</span>}
+                      {(periodFrom || periodTo) && <span className="block text-[11px] font-normal text-slate-400 sm:whitespace-nowrap sm:text-xs">{tallyDate(periodFrom || periodTo)} to {tallyDate(periodTo || periodFrom)}</span>}
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {!rows.length && (
-                    <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">No vouchers in this ledger{from || to ? ' for these dates' : ''} yet. Use <b>Add voucher</b>.</td></tr>
+                    <tr><td colSpan={6} className="px-2 py-10 sm:px-4 text-center text-slate-500">No vouchers in this ledger{from || to ? ' for these dates' : ''} yet. Use <b>Add voucher</b>.</td></tr>
                   )}
                   {rows.map(({ v, p }) => {
                     const isOpen = open === v.id
@@ -324,17 +324,17 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
                       <Fragment key={v.id + p.ledger}>
                         <tr onClick={() => setOpen(isOpen ? null : v.id)}
                           className={`cursor-pointer ${isOpen ? 'bg-[#f6d77a]' : 'hover:bg-[#fdf3d6]'}`}>
-                          <td className="whitespace-nowrap px-4 py-1.5 tabular-nums">{tallyDate(v.date)}</td>
-                          <td className="px-4 py-1.5 font-semibold text-slate-900">{otherSide(v, current)}</td>
-                          <td className="px-4 py-1.5">{v.type}</td>
-                          <td className="px-4 py-1.5 text-right tabular-nums">{v.no}</td>
-                          <td className="px-4 py-1.5 text-right font-semibold tabular-nums">{amt(p.dr)}</td>
-                          <td className="px-4 py-1.5 text-right font-semibold tabular-nums">{amt(p.cr)}</td>
+                          <td className="whitespace-nowrap px-2 py-1.5 tabular-nums sm:px-4">{tallyDate(v.date)}</td>
+                          <td className="px-2 py-1.5 font-semibold text-slate-900 sm:px-4">{otherSide(v, current)}<span className="block text-xs font-normal text-slate-500 sm:hidden">{v.type} {v.no}</span></td>
+                          <td className="hidden px-4 py-1.5 sm:table-cell">{v.type}</td>
+                          <td className="hidden px-4 py-1.5 text-right tabular-nums sm:table-cell">{v.no}</td>
+                          <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums sm:px-4">{amt(p.dr)}</td>
+                          <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums sm:px-4">{amt(p.cr)}</td>
                         </tr>
                         {isOpen && (
                           <tr className="bg-[#fffaf0]">
-                            <td />
-                            <td colSpan={5} className="px-4 pb-3 pt-1 text-xs text-slate-600">
+                            <td className="hidden sm:table-cell" />
+                            <td colSpan={5} className="px-2 pb-3 pt-1 text-xs text-slate-600 sm:px-4">
                               {v.postings.map((x, i) => <span key={i} className="block font-mono">{x.dr ? 'Dr' : '  Cr'} {x.ledger} · {amt(x.dr || x.cr)}</span>)}
                               <span className="mt-1 block">
                                 {branchName(v.branch)} · added by {v.addedBy ?? '—'} on {fmtDateTime(v.addedAt)}{v.narration && <> · {v.narration}</>}
@@ -362,19 +362,19 @@ function LedgerBook({ vouchers, allVouchers, custom, branch, ledger, setLedger }
                 </tbody>
                 <tfoot className="border-t-2 border-slate-300 text-sm">
                   <tr>
-                    <td colSpan={4} className="px-4 pt-2 text-right text-slate-500">Opening Balance</td>
-                    <td className="px-4 pt-2 text-right tabular-nums">{half(opening, 'dr')}</td>
-                    <td className="px-4 pt-2 text-right tabular-nums">{half(opening, 'cr')}</td>
+                    <td colSpan={2} className="px-2 sm:px-4 pt-2 text-right text-slate-500">Opening Balance</td><td className="hidden sm:table-cell" /><td className="hidden sm:table-cell" />
+                    <td className="whitespace-nowrap px-2 pt-2 text-right tabular-nums sm:px-4">{half(opening, 'dr')}</td>
+                    <td className="whitespace-nowrap px-2 pt-2 text-right tabular-nums sm:px-4">{half(opening, 'cr')}</td>
                   </tr>
                   <tr>
-                    <td colSpan={4} className="px-4 text-right text-slate-500">Current Total</td>
-                    <td className="px-4 text-right tabular-nums">{amt(totDr)}</td>
-                    <td className="px-4 text-right tabular-nums">{amt(totCr)}</td>
+                    <td colSpan={2} className="px-2 sm:px-4 text-right text-slate-500">Current Total</td><td className="hidden sm:table-cell" /><td className="hidden sm:table-cell" />
+                    <td className="whitespace-nowrap px-2 text-right tabular-nums sm:px-4">{amt(totDr)}</td>
+                    <td className="whitespace-nowrap px-2 text-right tabular-nums sm:px-4">{amt(totCr)}</td>
                   </tr>
                   <tr className="font-bold text-slate-900">
-                    <td colSpan={4} className="px-4 pb-3 text-right">Closing Balance</td>
-                    <td className="px-4 pb-3 text-right tabular-nums">{half(closingBal, 'dr')}</td>
-                    <td className="px-4 pb-3 text-right tabular-nums">{half(closingBal, 'cr')}</td>
+                    <td colSpan={2} className="px-2 sm:px-4 pb-3 text-right">Closing Balance</td><td className="hidden sm:table-cell" /><td className="hidden sm:table-cell" />
+                    <td className="whitespace-nowrap px-2 pb-3 text-right tabular-nums sm:px-4">{half(closingBal, 'dr')}</td>
+                    <td className="whitespace-nowrap px-2 pb-3 text-right tabular-nums sm:px-4">{half(closingBal, 'cr')}</td>
                   </tr>
                 </tfoot>
               </table>

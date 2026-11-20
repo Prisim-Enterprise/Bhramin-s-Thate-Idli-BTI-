@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Download, FileCheck2, FileText, Plus, ScanLine, Trash2, Undo2, Upload, XCircle } from 'lucide-react'
+import { CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Download, FileCheck2, FileText, Handshake, Plus, ScanLine, Trash2, Undo2, Upload, XCircle } from 'lucide-react'
 import { Tile, downloadCsv, money } from '../../../components/report'
 import { Badge, Button, inputCls } from '../../../components/ui'
 import { useApp } from '../../../context/AppContext'
 import { useAuth } from '../../../context/AuthContext'
 import { fmtDateTime, niceDate, useEntries } from '../../../data/entries'
 import { BRANCHES, branchName, inr } from '../../../data/mock'
-import { keepFile, openReceipt } from '../../../data/ledgerStore'
+import { keepFile, openReceipt, useManualVouchers } from '../../../data/ledgerStore'
+import { useBankLines } from '../../../data/banking'
 import { readStatementFile, type StatementRead } from '../../../lib/readStatement'
 import {
-  DEDUCTION_KINDS, PARTNERS, TOLERANCE, addDays, partnerName, saveSettlement, settlementId, statementRow, useSettlements, weekEndOf, weekRows, weekStart,
-  type PartnerId,
+  DEDUCTION_KINDS, PARTNERS, TOLERANCE, addDays, partnerName, payoutCredit, saveSettlement, saveTerms, settlementId, settlementLines, statementRow, stlVoucherId,
+  termsFor, usePartnerTerms, useSettlements, weekEndOf, weekRows, weekStart,
+  type PartnerId, type PartnerTerms,
   type Deduction, type DeductionKind, type Settlement, type StatementRow,
 } from '../../../data/settlements'
 
@@ -26,7 +28,8 @@ const diffCell = (v: number | null) => (v == null ? '—' : <span className={Mat
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5)
 
 /** Statement for one partner, outlet and week: what they say they sold, what they kept, and what reached the bank. */
-function StatementEditor({ row, canEdit, canApprove, by, onClose, onUpload }: { row: StatementRow; canEdit: boolean; canApprove: boolean; by: string; onClose: () => void; onUpload: () => void }) {
+function StatementEditor({ row, terms, canEdit, canApprove, by, onClose, onUpload }: { row: StatementRow; terms: PartnerTerms | null; canEdit: boolean; canApprove: boolean; by: string; onClose: () => void; onUpload: () => void }) {
+  const posted = useManualVouchers().find((v) => v.id === stlVoucherId(row.id))
   const now = () => new Date().toISOString()
   const s: Settlement = row.s ?? {
     id: row.id, partner: row.partner, branch: row.branch, date: row.week, weekEnd: weekEndOf(row.week),
@@ -44,8 +47,19 @@ function StatementEditor({ row, canEdit, canApprove, by, onClose, onUpload }: { 
     { ok: row.salesDiff != null && Math.abs(row.salesDiff) <= TOLERANCE, wait: row.gross == null, text: row.gross == null ? 'Enter the gross sales from the statement' : `Statement sales ${inr(row.gross)} vs books ${inr(row.books)}${Math.abs(row.salesDiff!) > TOLERANCE ? ` (off by ${inr(row.salesDiff!)})` : ''}` },
     { ok: !pending.length && s.deductions.length > 0, wait: !s.deductions.length, text: !s.deductions.length ? 'Add the deductions from the statement' : pending.length ? `${pending.length} deduction(s) waiting for approval` : 'All deductions approved' },
     ...(s.statementNet != null ? [{ ok: row.payoutDiff != null && Math.abs(row.payoutDiff) <= TOLERANCE, wait: row.net == null, text: `Our net receipts ${row.net != null ? inr(row.net) : 'N/A'} vs the statement's net payout ${inr(s.statementNet)}${row.payoutDiff != null && Math.abs(row.payoutDiff) > TOLERANCE ? ` (off by ${inr(row.payoutDiff)}: a deduction is missing or wrong)` : ''}` }] : []),
-    { ok: row.receiptDiff != null && Math.abs(row.receiptDiff) <= TOLERANCE, wait: row.received == null, text: row.received == null ? 'Enter what reached the bank' : `Received ${inr(row.received)} vs net receipts ${row.net != null ? inr(row.net) : 'N/A'}${row.receiptDiff != null && Math.abs(row.receiptDiff) > TOLERANCE ? ` (off by ${inr(row.receiptDiff)})` : ''}` },
+    { ok: row.receiptDiff != null && Math.abs(row.receiptDiff) <= TOLERANCE, wait: row.received == null, text: row.received == null ? 'Enter what reached the bank, or upload the bank statement in Banking: the payout is matched by itself' : `Received ${inr(row.received)} vs net receipts ${row.net != null ? inr(row.net) : 'N/A'}${row.receiptDiff != null && Math.abs(row.receiptDiff) > TOLERANCE ? ` (off by ${inr(row.receiptDiff)})` : ''}` },
   ]
+  // The two checks against what was agreed: commission (fixed by contract) and advertisement (approved budget).
+  if (row.gross != null) {
+    checks.splice(1, 0,
+      row.agreedPct == null
+        ? { ok: false, wait: true, text: `Commission ${inr(row.commission)}${row.commissionPct != null ? ` (${row.commissionPct}% of ${inr(row.commissionBase ?? 0)})` : ''}: set the agreed % in Partner terms to check it` }
+        : { ok: (row.commissionExtra ?? 0) <= TOLERANCE, wait: false, text: `Commission ${inr(row.commission)} = ${row.commissionPct}% of ${inr(row.commissionBase ?? 0)} vs ${row.agreedPct}% agreed${(row.commissionExtra ?? 0) > TOLERANCE ? `: ${inr(row.commissionExtra!)} more than agreed` : ''}` },
+      row.adsLimit == null
+        ? { ok: false, wait: true, text: `Advertisement ${inr(row.ads)}${row.adsPct != null ? ` (${row.adsPct}% of sales)` : ''}: set the approved budget in Partner terms to check it` }
+        : { ok: (row.adsOver ?? 0) <= TOLERANCE, wait: false, text: `Advertisement ${inr(row.ads)} (${row.adsPct}% of sales) vs approved ${inr(row.adsLimit)}${terms?.adsMode === 'pct' ? ` (${terms.adsValue}% of sales)` : ' for the week'}${(row.adsOver ?? 0) > TOLERANCE ? `: ${inr(row.adsOver!)} over budget` : ''}` },
+    )
+  }
 
   return (
     <div className="mt-5 rounded-2xl border-2 border-[#7a2228]/20 bg-white shadow-sm" data-testid="statement-editor">
@@ -62,12 +76,17 @@ function StatementEditor({ row, canEdit, canApprove, by, onClose, onUpload }: { 
       </div>
       {s.readNote && <p className="mx-5 mt-4 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">{s.readNote}</p>}
 
-      <div className="grid gap-6 p-5 lg:grid-cols-[1.4fr_1fr]">
-        <div>
+      <div className="grid gap-6 p-4 sm:p-5 lg:grid-cols-[1.4fr_1fr]">
+        <div className="min-w-0">
           <label className="block text-xs font-semibold text-slate-600">Gross sales as per {partnerName(row.partner)} statement
             <input type="number" step="0.01" aria-label="Statement gross sales" className={inputCls + ' mt-1 !w-48 text-right placeholder:text-amber-600'} placeholder="N/A" disabled={!canEdit}
               value={s.gross ?? ''} onChange={(e) => save({ gross: num(e.target.value) })} />
             <span className="ml-2 text-xs font-normal text-slate-500">Books (Imprest): {inr(row.books)}</span>
+          </label>
+          <label className="mt-3 block text-xs font-semibold text-slate-600">Commission is charged on
+            <input type="number" step="0.01" aria-label="Commission charged on" className={inputCls + ' mt-1 !w-48 text-right'} placeholder={row.gross != null ? String(row.gross) : 'gross sales'} disabled={!canEdit}
+              value={s.commissionBase ?? ''} onChange={(e) => save({ commissionBase: num(e.target.value) })} />
+            <span className="ml-2 text-xs font-normal text-slate-500">e.g. Zomato's “commissionable value”; empty = gross sales</span>
           </label>
 
           <p className="mb-2 mt-5 text-xs font-semibold text-slate-600">Deductions on the statement</p>
@@ -88,9 +107,9 @@ function StatementEditor({ row, canEdit, canApprove, by, onClose, onUpload }: { 
                       {d.approvedBy
                         ? <span className="inline-flex items-center gap-1 text-xs text-emerald-700" title={d.approvedAt ? fmtDateTime(d.approvedAt) : ''}><CheckCircle2 size={14} /> {d.approvedBy}
                             {canApprove && <button aria-label="Undo approval" className="ml-1 text-slate-400 hover:text-slate-700" onClick={() => approve(i, false)}><Undo2 size={13} /></button>}</span>
-                        : canApprove && d.amount > 0
+                        : canApprove && d.amount !== 0
                           ? <button onClick={() => approve(i, true)} className="rounded-md border border-emerald-600 px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">Approve</button>
-                          : <span className="text-xs text-amber-700">{d.amount > 0 ? 'waiting approval' : '—'}</span>}
+                          : <span className="text-xs text-amber-700">{d.amount !== 0 ? 'waiting approval' : '—'}</span>}
                     </td>
                     <td className="pl-2">{canEdit && <button aria-label="Remove deduction" className="text-slate-400 hover:text-rose-600" onClick={() => save({ deductions: s.deductions.filter((_, j) => j !== i) })}><Trash2 size={14} /></button>}</td>
                   </tr>
@@ -117,11 +136,17 @@ function StatementEditor({ row, canEdit, canApprove, by, onClose, onUpload }: { 
             <label className="text-xs text-slate-500">Date received<input type="date" className={inputCls + ' mt-1'} disabled={!canEdit} value={s.receivedOn ?? ''} onChange={(e) => save({ receivedOn: e.target.value || undefined })} /></label>
             <label className="text-xs text-slate-500">Bank ref. / UTR<input className={inputCls + ' mt-1'} disabled={!canEdit} value={s.utr ?? ''} onChange={(e) => save({ utr: e.target.value || undefined })} /></label>
           </div>
+          {s.bankLineId && (
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-emerald-700" data-testid="bank-matched">
+              <CheckCircle2 size={14} /> Matched to the bank statement{s.receivedFrom ? ` (${s.receivedFrom})` : ''}: {inr(s.received ?? 0)} on {s.receivedOn ? niceDate(s.receivedOn) : '—'}
+              {canEdit && <button className="ml-1 text-slate-500 underline" onClick={() => save({ bankLineId: undefined, receivedFrom: undefined, received: null, receivedOn: undefined })}>undo</button>}
+            </p>
+          )}
           <label className="mt-3 block text-xs text-slate-500">Note<input className={inputCls + ' mt-1'} disabled={!canEdit} value={s.note} onChange={(e) => save({ note: e.target.value })} placeholder="e.g. penalty for a cancelled order, claimed back" /></label>
         </div>
 
         {/* The working */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div className="rounded-xl bg-slate-50 p-4 text-sm">
             <p className="mb-2 font-semibold text-slate-900">Net receipts</p>
             <dl className="grid grid-cols-[1fr_auto] gap-y-1.5 tabular-nums">
@@ -144,7 +169,81 @@ function StatementEditor({ row, canEdit, canApprove, by, onClose, onUpload }: { 
               </li>
             ))}
           </ul>
+          {/* What goes into the books once every deduction is approved */}
+          {row.gross != null && s.deductions.some((d) => d.amount) && (
+            <div className="rounded-xl border border-slate-200 p-3 text-xs" data-testid="statement-posting">
+              <p className="mb-1.5 font-semibold text-slate-700">{posted ? `Posted to the books: Journal on ${niceDate(posted.date)}` : 'Will post to the books when every deduction is approved'}</p>
+              <table className="w-full tabular-nums">
+                <tbody>
+                  {settlementLines(s).map((l) => (
+                    <tr key={l.ledger}><td className="w-6 font-mono text-slate-500">{l.dr ? 'Dr' : 'Cr'}</td><td className="text-slate-700">{l.ledger}</td><td className="text-right">{inr(l.dr || l.cr)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** Partner terms: the commission agreed in each contract and the advertisement budget management approved. */
+function TermsPanel({ all, canEdit, by, onClose }: { all: PartnerTerms[]; canEdit: boolean; by: string; onClose: () => void }) {
+  const [extra, setExtra] = useState<string[]>([]) // outlet rows added on screen before anything is typed in them
+  const outlets = BRANCHES.filter((b) => b.id !== 'CK')
+  const keys = PARTNERS.flatMap((p) => ['*', ...outlets.map((b) => b.id)]
+    .filter((b) => b === '*' || all.some((t) => t.partner === p.id && t.branch === b) || extra.includes(`${p.id}:${b}`))
+    .map((b) => ({ partner: p.id as PartnerId, branch: b })))
+  const put = (partner: PartnerId, branch: string, p: Partial<PartnerTerms>) => {
+    const t = all.find((x) => x.partner === partner && x.branch === branch)
+    saveTerms({ partner, branch, commissionPct: t?.commissionPct ?? null, adsMode: t?.adsMode ?? null, adsValue: t?.adsValue ?? null, ...p, by, at: new Date().toISOString() })
+  }
+  const num = (v: string) => (v === '' ? null : Math.max(0, +v))
+  return (
+    <div className="mb-5 rounded-2xl border-2 border-[#7a2228]/20 bg-white shadow-sm" data-testid="partner-terms">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+        <div>
+          <p className="font-semibold text-slate-900">Partner terms</p>
+          <p className="text-xs text-slate-500">Commission is fixed by each contract; advertisement is what management approved. Every statement is checked against these, and anything above them raises an alert.</p>
+        </div>
+        <button onClick={onClose} className="text-sm text-slate-500 hover:text-slate-800">Close</button>
+      </div>
+      <div className="overflow-x-auto px-5 py-3">
+        <table className="w-full min-w-[640px] text-sm">
+          <thead className="text-left text-xs text-slate-500"><tr><th className="py-1.5">Partner</th><th>Outlet</th><th>Agreed commission %</th><th>Approved advertisement</th><th /><th /></tr></thead>
+          <tbody>
+            {keys.map(({ partner, branch }) => {
+              const t = all.find((x) => x.partner === partner && x.branch === branch)
+              const label = `${partnerName(partner)} ${branch === '*' ? 'all outlets' : branchName(branch)}`
+              return (
+                <tr key={partner + branch} className="border-t border-slate-100">
+                  <td className="py-1.5 pr-2 font-medium">{branch === '*' ? partnerName(partner) : ''}</td>
+                  <td className="pr-2 text-slate-600">{branch === '*' ? 'All outlets' : branchName(branch)}</td>
+                  <td className="pr-2"><input type="number" step="0.01" min="0" aria-label={`Commission % ${label}`} className={inputCls + ' !w-24 !py-1 text-right'} disabled={!canEdit} placeholder="—"
+                    defaultValue={t?.commissionPct ?? ''} onBlur={(e) => { if (num(e.target.value) !== (t?.commissionPct ?? null)) put(partner, branch, { commissionPct: num(e.target.value) }) }} /></td>
+                  <td className="pr-2">
+                    <select aria-label={`Advertisement budget type ${label}`} className={inputCls + ' !w-40 !py-1'} disabled={!canEdit} value={t?.adsMode ?? ''}
+                      onChange={(e) => put(partner, branch, { adsMode: (e.target.value || null) as PartnerTerms['adsMode'] })}>
+                      <option value="">Not set</option><option value="pct">% of the week's sales</option><option value="amount">₹ per week</option>
+                    </select>
+                  </td>
+                  <td className="pr-2">{t?.adsMode && <input type="number" step="0.01" min="0" aria-label={`Advertisement budget ${label}`} className={inputCls + ' !w-28 !py-1 text-right'} disabled={!canEdit}
+                    defaultValue={t.adsValue ?? ''} placeholder={t.adsMode === 'pct' ? '%' : '₹'} onBlur={(e) => { if (num(e.target.value) !== (t.adsValue ?? null)) put(partner, branch, { adsValue: num(e.target.value) }) }} />}</td>
+                  <td className="text-right text-xs text-slate-400">{t ? `by ${t.by}` : branch === '*' ? '' : 'uses all-outlet terms'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {canEdit && (
+          <label className="mt-3 inline-flex items-center gap-2 text-xs text-slate-600">Different terms for one outlet:
+            <select aria-label="Add outlet terms" className={inputCls + ' !w-auto !py-1'} value="" onChange={(e) => { if (e.target.value) setExtra((x) => [...x, e.target.value]) }}>
+              <option value="">Pick partner and outlet…</option>
+              {PARTNERS.flatMap((p) => outlets.map((b) => <option key={p.id + b.id} value={`${p.id}:${b.id}`}>{p.name} · {b.name}</option>))}
+            </select>
+          </label>
+        )}
       </div>
     </div>
   )
@@ -159,6 +258,23 @@ export default function WeeklyStatement() {
   const by = auth.email ?? 'Demo user'
   const canEdit = can('accounts', 'create') || can('accounts', 'edit')
   const canApprove = can('accounts', 'approve')
+  const terms = usePartnerTerms()
+  const bankLines = useBankLines()
+  const [showTerms, setShowTerms] = useState(false)
+
+  // Payouts in the bank: a credit from the partner for the net receipts (or with the statement's UTR) fills "received" by itself.
+  useEffect(() => {
+    if (!canEdit) return
+    const taken = new Set(all.map((s) => s.bankLineId).filter(Boolean) as string[])
+    for (const s of all) {
+      if (s.received != null || s.bankLineId) continue
+      const net = statementRow(s.partner, s.branch, s.date, entries, s, terms).net
+      const l = payoutCredit(s, net, bankLines, taken)
+      if (!l) continue
+      taken.add(l.id)
+      saveSettlement({ ...s, received: l.deposit, receivedOn: l.date, utr: s.utr ?? (l.ref || undefined), bankLineId: l.id, receivedFrom: l.ledger, updatedBy: by, updatedAt: new Date().toISOString() }, by)
+    }
+  }, [bankLines.length, all.length, canEdit]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Start on the latest week that has partner sales.
   const latest = useMemo(() => entries.filter((e) => e.swiggy || e.zomato || e.rapido || e.mobikwik).map((e) => e.date).sort().pop(), [entries])
@@ -204,18 +320,19 @@ export default function WeeklyStatement() {
       gross: r.gross ?? null,
       deductions: r.deductions.map((d) => ({ ...d, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6) })),
       received: old?.received ?? null, receivedOn: old?.receivedOn, utr: r.utr ?? old?.utr,
-      note: old?.note ?? '', statementNet: r.netPayout ?? null, file: kept,
+      note: old?.note ?? '', statementNet: r.netPayout ?? null, commissionBase: r.commissionBase ?? old?.commissionBase ?? null, file: kept,
+      bankLineId: old?.bankLineId, receivedFrom: old?.receivedFrom,
       readNote: r.note + (r.from ? ` Period on statement: ${niceDate(r.from)}${r.to ? ' – ' + niceDate(r.to) : ''}.` : ''),
       addedBy: old?.addedBy ?? by, addedAt: old?.addedAt ?? now, updatedBy: by, updatedAt: now,
     }
     saveSettlement(s)
     if (w !== week) setWeek(w)
     setOpen(id)
-    const row = statementRow(p, b, w, entries, s)
-    setMsg({ tone: 'ok', text: `${partnerName(p)} · ${branchName(b)}, week of ${niceDate(w)}: read ${row.gross != null ? 'gross ' + inr(row.gross) : 'no gross'}, ${s.deductions.length} deduction(s)${s.statementNet != null ? ', net payout ' + inr(s.statementNet) : ''}. Check the figures and approve the deductions.` })
+    const row = statementRow(p, b, w, entries, s, terms)
+    setMsg({ tone: 'ok', text: `${partnerName(p)} · ${branchName(b)}, week of ${niceDate(w)}: read ${row.gross != null ? 'gross ' + inr(row.gross) : 'no gross'}, ${s.deductions.length} deduction(s)${s.statementNet != null ? ', net payout ' + inr(s.statementNet) : ''}${r.orders ? ` (${r.orders} orders)` : ''}.${r.pending != null && r.pending > 0.5 ? ` ${partnerName(p)} had not paid it yet when the report was made (${inr(r.pending)} pending): enter what reaches the bank when it arrives.` : ''} Check the figures and approve the deductions.` })
   }
 
-  const rows = useMemo(() => weekRows(week, entries, all, branch, partner), [week, entries, all, branch, partner])
+  const rows = useMemo(() => weekRows(week, entries, all, branch, partner, terms), [week, entries, all, branch, partner, terms])
   const sum = (f: (r: StatementRow) => number | null) => r2(rows.reduce((s, r) => s + (f(r) ?? 0), 0))
   const T = { books: sum((r) => r.books), gross: sum((r) => r.gross), commission: sum((r) => r.commission), ads: sum((r) => r.ads), charges: sum((r) => r.charges), net: sum((r) => r.net), received: sum((r) => r.received) }
   const pending = rows.reduce((s, r) => s + r.pending, 0)
@@ -243,6 +360,7 @@ export default function WeeklyStatement() {
           </div>
           <select aria-label="Partner" className={sel} value={partner} onChange={(e) => setPartner(e.target.value)}><option value="">All partners</option>{PARTNERS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
           <select aria-label="Outlet" className={sel} value={branch} onChange={(e) => setBranch(e.target.value)}><option value="">All outlets</option>{BRANCHES.filter((b) => b.id !== 'CK').map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+          <Button icon={Handshake} onClick={() => setShowTerms((x) => !x)}>Partner terms</Button>
           {canEdit && <Button icon={Upload} onClick={() => pickFile(null)} disabled={!!reading}>Upload statement</Button>}
           <Button icon={Download} onClick={csv}>Export report</Button>
           <input ref={fileInput} type="file" hidden accept=".pdf,.csv,.xlsx,.xls,image/*" aria-label="Statement file"
@@ -252,6 +370,7 @@ export default function WeeklyStatement() {
 
       {reading && <p className="mb-4 flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-800"><ScanLine size={16} className="animate-pulse" />{reading}</p>}
       {msg && <p className={`mb-4 rounded-lg px-3 py-2 text-sm ${msg.tone === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>{msg.text}</p>}
+      {showTerms && <TermsPanel all={terms} canEdit={canApprove} by={by} onClose={() => setShowTerms(false)} />}
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Tile label="Sales as per books" value={money(T.books)} note="Imprest Books, this week" />
@@ -295,11 +414,11 @@ export default function WeeklyStatement() {
         </div>
       </div>
 
-      {sel_ && <StatementEditor key={sel_.id} row={sel_} canEdit={canEdit} canApprove={canApprove} by={by} onClose={() => setOpen(null)} onUpload={() => pickFile(sel_)} />}
+      {sel_ && <StatementEditor key={sel_.id} row={sel_} terms={termsFor(terms, sel_.partner, sel_.branch)} canEdit={canEdit} canApprove={canApprove} by={by} onClose={() => setOpen(null)} onUpload={() => pickFile(sel_)} />}
 
       <p className="mt-4 flex items-start gap-1.5 text-xs text-slate-500">
         <FileCheck2 size={14} className="mt-0.5 shrink-0" />
-        <span>Net receipts = gross sales on the statement − commission − advertisement − other charges (payment gateway, GST on charges, TDS/TCS, penalties). A week is <b>matched</b> when the statement's sales agree with the Imprest Books, every deduction is approved, and the money received equals the net receipts (within ₹{TOLERANCE}). Changing an approved deduction needs a fresh approval. <b>Upload statement</b> reads a PDF or CSV directly; a scanned PDF or photo is read by OCR (shares the daily reading limit with handwritten bills). Read figures always come in unapproved. These figures are for checking only and are not posted to Profit &amp; Loss.</span>
+        <span>Net receipts = gross sales on the statement − commission − advertisement − other charges (payment gateway, GST on charges, TDS/TCS, penalties). A week is <b>matched</b> when the statement's sales agree with the Imprest Books, every deduction is approved, and the money received equals the net receipts (within ₹{TOLERANCE}). Changing an approved deduction needs a fresh approval. <b>Upload statement</b> reads a PDF, CSV or Excel file directly (Zomato's weekly Settlement Report .xlsx as it is). Money a partner adds back, like Zomato's cancellation refund, is a minus deduction; a scanned PDF or photo is read by OCR (shares the daily reading limit with handwritten bills). Read figures always come in unapproved. Commission is checked against the % agreed in <b>Partner terms</b> and advertisement against the approved budget; anything above them is a difference and raises an alert with a sound. When every deduction is approved, one Journal posts them to the books (commission, advertisement and charges as expenses, GST on charges as Input GST, TDS as TDS Receivable) against the partner's ledger for the outlet, so that ledger is left with what reaches the bank. A payout in an uploaded bank statement (Banking → Bank Reconciliation) fills <b>received</b> by itself.</span>
       </p>
     </div>
   )

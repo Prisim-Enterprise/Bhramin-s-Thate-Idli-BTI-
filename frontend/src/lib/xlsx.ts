@@ -36,32 +36,48 @@ async function read(buf: ArrayBuffer, e: Entry): Promise<string> {
 /** Excel's day number (days since 30 Dec 1899) -> yyyy-mm-dd. */
 export const excelDate = (n: number) => new Date(Math.round((n - 25569) * 86400000)).toISOString().slice(0, 10)
 
-/** The first sheet of an .xlsx as rows of text cells. Numbers stay as written ("1250.5", or a day number for dates). */
-export async function xlsxRows(file: Blob): Promise<string[][]> {
+/** Every sheet of an .xlsx, in the workbook's order, as rows of text cells. Numbers stay as written ("1250.5", or a day number for dates). */
+export async function xlsxWorkbook(file: Blob, only?: (name: string) => boolean): Promise<{ name: string; rows: string[][] }[]> {
   const buf = await file.arrayBuffer()
   const list = entries(buf)
   const get = async (name: string) => { const e = list.find((x) => x.name === name); return e ? read(buf, e) : '' }
   const xml = (s: string) => new DOMParser().parseFromString(s, 'application/xml')
   const shared = [...xml(await get('xl/sharedStrings.xml')).getElementsByTagName('si')].map((si) => [...si.getElementsByTagName('t')].map((t) => t.textContent ?? '').join(''))
-  // The first sheet in the workbook's order.
   const wb = xml(await get('xl/workbook.xml'))
-  const rels = xml(await get('xl/_rels/workbook.xml.rels'))
-  const firstId = wb.getElementsByTagName('sheet')[0]?.getAttribute('r:id')
-  const target = [...rels.getElementsByTagName('Relationship')].find((r) => r.getAttribute('Id') === firstId)?.getAttribute('Target')
-  const sheetName = target ? 'xl/' + target.replace(/^\/?xl\//, '').replace(/^\//, '') : list.find((e) => /^xl\/worksheets\/sheet\d+\.xml$/.test(e.name))?.name
-  if (!sheetName) throw new Error('No sheet found in this file.')
-  const sheet = xml(await get(sheetName))
+  const rels = [...xml(await get('xl/_rels/workbook.xml.rels')).getElementsByTagName('Relationship')]
   const col = (ref: string) => [...ref.replace(/\d+/g, '')].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1
-  return [...sheet.getElementsByTagName('row')].map((row) => {
-    const cells: string[] = []
-    for (const c of row.getElementsByTagName('c')) {
-      const t = c.getAttribute('t')
-      const v = c.getElementsByTagName('v')[0]?.textContent ?? ''
-      const text = t === 's' ? shared[Number(v)] ?? '' : t === 'inlineStr' ? [...c.getElementsByTagName('t')].map((x) => x.textContent).join('') : v
-      cells[col(c.getAttribute('r') ?? 'A1')] = text.trim()
-    }
-    return Array.from(cells, (x) => x ?? '')
+  const sheets = [...wb.getElementsByTagName('sheet')].map((s) => {
+    const target = rels.find((r) => r.getAttribute('Id') === s.getAttribute('r:id'))?.getAttribute('Target')
+    return { name: s.getAttribute('name') ?? '', path: target ? 'xl/' + target.replace(/^\/?xl\//, '').replace(/^\//, '') : '' }
   })
+  if (!sheets.length) { const p = list.find((e) => /^xl\/worksheets\/sheet\d+\.xml$/.test(e.name))?.name; if (p) sheets.push({ name: 'Sheet1', path: p }) }
+  if (!sheets.length) throw new Error('No sheet found in this file.')
+  const out: { name: string; rows: string[][] }[] = []
+  for (const s of sheets) {
+    if (only && !only(s.name)) continue
+    const sheet = xml(await get(s.path))
+    out.push({
+      name: s.name,
+      rows: [...sheet.getElementsByTagName('row')].map((row) => {
+        const cells: string[] = []
+        for (const c of row.getElementsByTagName('c')) {
+          const t = c.getAttribute('t')
+          const v = c.getElementsByTagName('v')[0]?.textContent ?? ''
+          const text = t === 's' ? shared[Number(v)] ?? '' : t === 'inlineStr' ? [...c.getElementsByTagName('t')].map((x) => x.textContent).join('') : v
+          cells[col(c.getAttribute('r') ?? 'A1')] = text.trim()
+        }
+        return Array.from(cells, (x) => x ?? '')
+      }),
+    })
+  }
+  return out
+}
+
+/** The first sheet of an .xlsx as rows of text cells. */
+export async function xlsxRows(file: Blob): Promise<string[][]> {
+  let first = true
+  const [s] = await xlsxWorkbook(file, () => { const f = first; first = false; return f })
+  return s?.rows ?? []
 }
 
 /** An "xls" saved by many banks is really an HTML table: read its rows. */
