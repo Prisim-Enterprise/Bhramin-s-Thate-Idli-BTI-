@@ -4,6 +4,8 @@ import { addLedger, addManualVoucher, customLedgersNow, deleteManualVoucher, led
 import type { GroupId } from './books'
 import type { BankLine } from './banking'
 import { branchName } from './mock'
+import type { Units } from './aggregator/money'
+import type { ZRules, ZStatement } from './aggregator/zomatoEngine'
 
 // Money that comes in through payment partners, and the weekly statements they settle with.
 //  - Mobikwik: UPI and card payments at the counter. The Imprest Book has one Mobikwik figure a day;
@@ -74,10 +76,36 @@ export type Settlement = {
   receivedFrom?: string // bank ledger the payout reached, when matched from a bank statement
   file?: ReceiptFile // the uploaded statement
   readNote?: string // what the reader found
+  // Aggregator Reconciliation (Zomato): the full statement, its import, approvals, finalising and history.
+  zomato?: ZStatement
+  import?: { fileHash: string; fileName: string; source: 'xlsx' | 'csv' | 'gsheet'; by: string; at: string }
+  adApprovals?: AdApproval[]
+  review?: { by: string; at: string; note: string } | null // marked "under review" by a person
+  finalised?: { by: string; at: string; snapshot: FinalSnapshot } | null
+  revisions?: { at: string; by: string; reason: string; before: FinalSnapshot }[] // each time a finalised week was reopened
+  history?: { at: string; by: string; action: string; detail: string }[]
   addedBy: string
   addedAt: string
   updatedBy?: string
   updatedAt?: string
+}
+
+/** An approval of the week's advertisement: a % of the net order value or a fixed amount, and who approved it. */
+export type AdApproval = { id: string; mode: 'pct' | 'amount'; value: string; amount: Units; base?: Units; by: string; at: string; note?: string; revoked?: { by: string; at: string; reason: string } }
+export const currentAdApproval = (s: Settlement) => [...(s.adApprovals ?? [])].reverse().find((a) => !a.revoked) ?? null
+
+/** What a finalised week was settled on: the terms version, the figures and the bank matches, as they stood. */
+export type FinalSnapshot = {
+  termsId: string | null
+  commission: { mode: string | null; value: string | null }
+  adsApproved: Units | null
+  statementPayout: Units
+  payablePerTerms: Units
+  recoverable: Units
+  received: Units
+  difference: Units
+  status: string
+  matches: { bankLineId: string; amount: Units }[]
 }
 
 const settlements = cloudStore<Settlement>('prisim.settlements', { kind: 'settlements', idOf: (s) => s.id })
@@ -97,27 +125,46 @@ export function deleteSettlement(id: string) {
 
 // Commission is fixed by the contract; advertisement is approved by management as a % of sales or a cost per week.
 // Set for all outlets of a partner (branch '*'), or for one outlet when it differs.
+// Terms are kept as versions, each from a date: a week is always checked with the terms in force then, so a new
+// rate never changes weeks already done. (Terms saved before versions existed count as in force from the start.)
 export type PartnerTerms = {
-  id: string // partner:branch ('*' = all outlets)
+  id: string // partner:branch@effectiveFrom ('*' = all outlets); older records: partner:branch
   partner: PartnerId
   branch: string
+  effectiveFrom?: string // yyyy-mm-dd, the first week these apply to
+  commissionMode?: 'pct' | 'fixed' | null // how commission is agreed (unset with a % = 'pct')
   commissionPct: number | null // agreed commission, % of the commissionable value
+  commissionAmount?: string | null // agreed fixed commission per week (₹, as typed)
   adsMode: 'pct' | 'amount' | null // approved advertisement: % of the week's sales, or ₹ per week
   adsValue: number | null
+  zRules?: ZRules // Zomato: which statement rows make each value (defaults follow the statement)
+  note?: string // why the terms changed (contract, email …)
   by: string
   at: string
 }
 const terms = cloudStore<PartnerTerms>('prisim.partnerTerms', { kind: 'partnerTerms', idOf: (t) => t.id })
 export const usePartnerTerms = terms.use
-export const termsId = (partner: string, branch: string) => `${partner}:${branch}`
+export const partnerTermsNow = () => terms.get()
+export const FROM_START = '2000-01-01'
+export const effectiveOf = (t: PartnerTerms) => t.effectiveFrom ?? FROM_START
+export const termsId = (partner: string, branch: string, from = FROM_START) => `${partner}:${branch}@${from}`
+/** Save terms as the version from `effectiveFrom` (default: this week's Monday). Empty terms remove that version. */
 export function saveTerms(t: Omit<PartnerTerms, 'id'>) {
-  const id = termsId(t.partner, t.branch)
-  const empty = t.commissionPct == null && (t.adsMode == null || t.adsValue == null)
-  terms.set([...(empty ? [] : [{ ...t, id }]), ...terms.get().filter((x) => x.id !== id)])
+  const from = t.effectiveFrom ?? weekStart(new Date().toLocaleDateString('en-CA'))
+  const id = termsId(t.partner, t.branch, from)
+  const legacy = `${t.partner}:${t.branch}`
+  const empty = t.commissionPct == null && !t.commissionAmount && (t.adsMode == null || t.adsValue == null) && !t.zRules
+  // A record from before versions, for the same outlet and start, is replaced rather than kept twice.
+  terms.set([...(empty ? [] : [{ ...t, effectiveFrom: from, id }]), ...terms.get().filter((x) => x.id !== id && !(x.id === legacy && from === FROM_START))])
 }
-/** The terms for one outlet: its own, otherwise the partner's terms for all outlets. */
-export function termsFor(all: PartnerTerms[], partner: string, branch: string): PartnerTerms | null {
-  return all.find((t) => t.id === termsId(partner, branch)) ?? all.find((t) => t.id === termsId(partner, '*')) ?? null
+export function deleteTermsVersion(id: string) { terms.set(terms.get().filter((x) => x.id !== id)) }
+/** Versions for one partner and outlet, newest first. */
+export const versionsOf = (all: PartnerTerms[], partner: string, branch: string) =>
+  all.filter((t) => t.partner === partner && t.branch === branch).sort((a, b) => effectiveOf(b).localeCompare(effectiveOf(a)))
+/** The terms in force for an outlet on a date: its own version, otherwise the partner's terms for all outlets. */
+export function termsFor(all: PartnerTerms[], partner: string, branch: string, onDate = '9999-12-31'): PartnerTerms | null {
+  const live = (b: string) => versionsOf(all, partner, b).find((t) => effectiveOf(t) <= onDate) ?? null
+  return live(branch) ?? live('*')
 }
 
 /* ---------- Posting an approved statement to the books ---------- */
@@ -248,11 +295,13 @@ export function statementRow(partner: PartnerId, branch: string, week: string, e
   const receiptDiff = net == null || received == null ? null : r2(received - net)
   const pending = ded.filter((d) => d.amount && !d.approvedBy).length
   // Commission is fixed by contract; advertisement must stay within what was approved.
-  const t = termsFor(allTerms, partner, branch)
+  const t = termsFor(allTerms, partner, branch, week)
   const commissionBase = gross == null ? null : (s?.commissionBase ?? gross)
   const commissionPct = commissionBase ? r2(commission / commissionBase * 100) : null
-  const agreedPct = t?.commissionPct ?? null
-  const commissionExtra = agreedPct == null || commissionBase == null || !commission ? null : r2(Math.max(0, commission - commissionBase * agreedPct / 100))
+  const fixed = t?.commissionMode === 'fixed' && t.commissionAmount ? Number(t.commissionAmount) : null
+  const agreedPct = fixed == null ? (t?.commissionPct ?? null) : null
+  const agreedAmount = fixed ?? (agreedPct == null || commissionBase == null ? null : commissionBase * agreedPct / 100)
+  const commissionExtra = agreedAmount == null || !commission ? null : r2(Math.max(0, commission - agreedAmount))
   const adsPct = gross ? r2(ads / gross * 100) : null
   const adsLimit = !t?.adsMode || t.adsValue == null ? null : t.adsMode === 'pct' ? (gross == null ? null : r2(gross * t.adsValue / 100)) : t.adsValue
   const adsOver = adsLimit == null || gross == null ? null : r2(Math.max(0, ads - adsLimit))
@@ -284,7 +333,7 @@ export function reconcileAlerts(entries: DayEntry[], all: Settlement[], allTerms
   for (const s of all) {
     const r = statementRow(s.partner, s.branch, s.date, entries, s, allTerms)
     const problems: string[] = []
-    if (off(r.commissionExtra)) problems.push(`Commission ${r.commissionPct}% charged vs ${r.agreedPct}% agreed: ${inr(r.commissionExtra)} extra`)
+    if (off(r.commissionExtra)) problems.push(`Commission ${r.commissionPct}% charged vs ${r.agreedPct != null ? r.agreedPct + "% agreed" : "the agreed amount"}: ${inr(r.commissionExtra)} extra`)
     if (off(r.adsOver)) problems.push(`Advertisement ${inr(r.ads)} is ${inr(r.adsOver)} over the approved ${inr(r.adsLimit ?? 0)}`)
     if (off(r.salesDiff)) problems.push(`Statement sales ${r.salesDiff > 0 ? 'more' : 'less'} than the Imprest Book by ${inr(r.salesDiff)}`)
     if (off(r.payoutDiff)) problems.push(`Our net receipts differ from the statement's net payout by ${inr(r.payoutDiff)}`)

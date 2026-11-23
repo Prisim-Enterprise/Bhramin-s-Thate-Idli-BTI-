@@ -37,6 +37,7 @@ import PettyExpenses from './pages/admin/ops/PettyExpenses'
 import StockSummary from './pages/admin/inventory/StockSummary'
 import MobikwikPayments from './pages/admin/reports/MobikwikPayments'
 import WeeklyStatement from './pages/admin/reports/WeeklyStatement'
+import AggregatorRecon from './pages/admin/aggregator/AggregatorRecon'
 import InventoryItems from './pages/admin/inventory/InventoryItems'
 import ClosingStock from './pages/admin/inventory/ClosingStock'
 import { PendingPurchases, PoApproval } from './pages/admin/inventory/Approvals'
@@ -91,6 +92,7 @@ const adminRoutes: R[] = [
   { path: 'accounting/tally', module: 'accounts', el: <Gateway /> },
   { path: 'accounting/mobikwik', module: 'sales', el: <MobikwikPayments /> },
   { path: 'accounting/reconcile', module: 'accounts', el: <WeeklyStatement /> },
+  { path: 'accounting/aggregator', module: 'accounts', el: <AggregatorRecon /> },
   { path: 'accounting/weekly-statement', module: 'accounts', el: <Navigate to="/admin/accounting/reconcile" replace /> }, // old address
   { path: 'accounting/pnl', module: 'accounts', el: <ProfitLoss /> },
   { path: 'kitchen/centre', module: 'indent', el: <CentreKitchen /> },

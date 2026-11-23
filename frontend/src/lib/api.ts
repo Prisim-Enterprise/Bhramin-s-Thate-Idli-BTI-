@@ -85,6 +85,13 @@ export async function readStatementOnline(file: Blob, name: string, pages = 1): 
   return res.json() as Promise<{ statement: SarvamStatement } & Usage>
 }
 
+/** A Google Sheet (shared "anyone with the link can view") fetched by the API as an .xlsx file. */
+export async function importGoogleSheet(url: string): Promise<File> {
+  const res = await call('/api/import/sheet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) })
+  const id = res.headers.get('X-Sheet-Id') ?? 'sheet'
+  return new File([await res.blob()], `google-sheet-${id}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+}
+
 /** Handwritten bills read today (whole company) and the daily limit. */
 export async function readUsage(): Promise<Usage> {
   return (await call('/api/read-bill/usage')).json() as Promise<Usage>

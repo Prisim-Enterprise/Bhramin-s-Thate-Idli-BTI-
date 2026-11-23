@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Download, FileCheck2, FileText, Handshake, Plus, ScanLine, Trash2, Undo2, Upload, XCircle } from 'lucide-react'
+import { CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Download, FileCheck2, FileText, Handshake, Link2, Plus, ScanLine, Trash2, Undo2, Upload, XCircle } from 'lucide-react'
 import { Tile, downloadCsv, money } from '../../../components/report'
 import { Badge, Button, inputCls } from '../../../components/ui'
 import { useApp } from '../../../context/AppContext'
@@ -8,11 +8,12 @@ import { useAuth } from '../../../context/AuthContext'
 import { fmtDateTime, niceDate, useEntries } from '../../../data/entries'
 import { BRANCHES, branchName, inr } from '../../../data/mock'
 import { keepFile, openReceipt, useManualVouchers } from '../../../data/ledgerStore'
+import { API_ON, importGoogleSheet } from '../../../lib/api'
 import { useBankLines } from '../../../data/banking'
 import { readStatementFile, type StatementRead } from '../../../lib/readStatement'
 import {
   DEDUCTION_KINDS, PARTNERS, TOLERANCE, addDays, partnerName, payoutCredit, saveSettlement, saveTerms, settlementId, settlementLines, statementRow, stlVoucherId,
-  termsFor, usePartnerTerms, useSettlements, weekEndOf, weekRows, weekStart,
+  FROM_START, effectiveOf, termsFor, usePartnerTerms, useSettlements, versionsOf, weekEndOf, weekRows, weekStart,
   type PartnerId, type PartnerTerms,
   type Deduction, type DeductionKind, type Settlement, type StatementRow,
 } from '../../../data/settlements'
@@ -52,9 +53,9 @@ function StatementEditor({ row, terms, canEdit, canApprove, by, onClose, onUploa
   // The two checks against what was agreed: commission (fixed by contract) and advertisement (approved budget).
   if (row.gross != null) {
     checks.splice(1, 0,
-      row.agreedPct == null
+      row.commissionExtra == null
         ? { ok: false, wait: true, text: `Commission ${inr(row.commission)}${row.commissionPct != null ? ` (${row.commissionPct}% of ${inr(row.commissionBase ?? 0)})` : ''}: set the agreed % in Partner terms to check it` }
-        : { ok: (row.commissionExtra ?? 0) <= TOLERANCE, wait: false, text: `Commission ${inr(row.commission)} = ${row.commissionPct}% of ${inr(row.commissionBase ?? 0)} vs ${row.agreedPct}% agreed${(row.commissionExtra ?? 0) > TOLERANCE ? `: ${inr(row.commissionExtra!)} more than agreed` : ''}` },
+        : { ok: (row.commissionExtra ?? 0) <= TOLERANCE, wait: false, text: `Commission ${inr(row.commission)} = ${row.commissionPct}% of ${inr(row.commissionBase ?? 0)} vs ${row.agreedPct != null ? row.agreedPct + "% agreed" : "the agreed amount"}${(row.commissionExtra ?? 0) > TOLERANCE ? `: ${inr(row.commissionExtra!)} more than agreed` : ''}` },
       row.adsLimit == null
         ? { ok: false, wait: true, text: `Advertisement ${inr(row.ads)}${row.adsPct != null ? ` (${row.adsPct}% of sales)` : ''}: set the approved budget in Partner terms to check it` }
         : { ok: (row.adsOver ?? 0) <= TOLERANCE, wait: false, text: `Advertisement ${inr(row.ads)} (${row.adsPct}% of sales) vs approved ${inr(row.adsLimit)}${terms?.adsMode === 'pct' ? ` (${terms.adsValue}% of sales)` : ' for the week'}${(row.adsOver ?? 0) > TOLERANCE ? `: ${inr(row.adsOver!)} over budget` : ''}` },
@@ -196,8 +197,14 @@ function TermsPanel({ all, canEdit, by, onClose }: { all: PartnerTerms[]; canEdi
     .filter((b) => b === '*' || all.some((t) => t.partner === p.id && t.branch === b) || extra.includes(`${p.id}:${b}`))
     .map((b) => ({ partner: p.id as PartnerId, branch: b })))
   const put = (partner: PartnerId, branch: string, p: Partial<PartnerTerms>) => {
-    const t = all.find((x) => x.partner === partner && x.branch === branch)
-    saveTerms({ partner, branch, commissionPct: t?.commissionPct ?? null, adsMode: t?.adsMode ?? null, adsValue: t?.adsValue ?? null, ...p, by, at: new Date().toISOString() })
+    const t = versionsOf(all, partner, branch)[0]
+    // A change here starts a new version from this week, carrying everything else over; earlier weeks keep their terms.
+    const base: Omit<PartnerTerms, 'id'> = t ? (({ id: _id, effectiveFrom: _from, ...rest }) => rest)(t) : { partner, branch, commissionPct: null, adsMode: null, adsValue: null, by, at: '' }
+    // The first terms set for a partner / outlet cover every week; a change on a later day applies from that week on.
+    // Changes on the same day as the version was saved (filling in several boxes) correct that version.
+    const today = new Date().toLocaleDateString('en-CA')
+    const from = !t ? FROM_START : new Date(t.at).toLocaleDateString('en-CA') === today ? effectiveOf(t) : undefined
+    saveTerms({ ...base, partner, branch, ...p, effectiveFrom: from, by, at: new Date().toISOString() })
   }
   const num = (v: string) => (v === '' ? null : Math.max(0, +v))
   return (
@@ -214,7 +221,7 @@ function TermsPanel({ all, canEdit, by, onClose }: { all: PartnerTerms[]; canEdi
           <thead className="text-left text-xs text-slate-500"><tr><th className="py-1.5">Partner</th><th>Outlet</th><th>Agreed commission %</th><th>Approved advertisement</th><th /><th /></tr></thead>
           <tbody>
             {keys.map(({ partner, branch }) => {
-              const t = all.find((x) => x.partner === partner && x.branch === branch)
+              const t = versionsOf(all, partner, branch)[0]
               const label = `${partnerName(partner)} ${branch === '*' ? 'all outlets' : branchName(branch)}`
               return (
                 <tr key={partner + branch} className="border-t border-slate-100">
@@ -284,6 +291,13 @@ export default function WeeklyStatement() {
   const [partner, setPartner] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const [reading, setReading] = useState<string | null>(null)
+  const [sheetUrl, setSheetUrl] = useState('')
+  const fetchSheet = async () => {
+    setReading('Fetching the Google Sheet…'); setMsg(null)
+    try { target.current = null; await onFile(await importGoogleSheet(sheetUrl.trim())); setSheetUrl('') }
+    catch (e) { setMsg({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) }
+    finally { setReading(null) }
+  }
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
   // Opened from an alert: ?week=2026-08-17&open=zomato:B8:2026-08-17 shows that week with the statement open.
   const [params] = useSearchParams()
@@ -368,9 +382,19 @@ export default function WeeklyStatement() {
         </div>
       </div>
 
+      {/* A statement kept in Google Sheets: fetched by the server as Excel, then read like an uploaded file. */}
+      {canEdit && (
+        <div className="mb-4 flex flex-wrap items-end gap-2">
+          <label className="min-w-[260px] flex-1 text-xs text-slate-500">Or a Google Sheet link (shared “anyone with the link can view”)
+            <input aria-label="Google Sheet link" className={inputCls + ' mt-1'} placeholder="https://docs.google.com/spreadsheets/d/…" value={sheetUrl} disabled={!API_ON} onChange={(e) => setSheetUrl(e.target.value)} />
+          </label>
+          <Button icon={Link2} disabled={!API_ON || !sheetUrl.trim() || !!reading} onClick={() => void fetchSheet()}>Fetch sheet</Button>
+          {!API_ON && <span className="text-xs text-slate-400">Works on the live dashboard (it needs the server).</span>}
+        </div>
+      )}
       {reading && <p className="mb-4 flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-800"><ScanLine size={16} className="animate-pulse" />{reading}</p>}
       {msg && <p className={`mb-4 rounded-lg px-3 py-2 text-sm ${msg.tone === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>{msg.text}</p>}
-      {showTerms && <TermsPanel all={terms} canEdit={canApprove} by={by} onClose={() => setShowTerms(false)} />}
+      {showTerms && <TermsPanel all={terms} canEdit={can('settings', 'edit')} by={by} onClose={() => setShowTerms(false)} />}
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Tile label="Sales as per books" value={money(T.books)} note="Imprest Books, this week" />
@@ -414,7 +438,7 @@ export default function WeeklyStatement() {
         </div>
       </div>
 
-      {sel_ && <StatementEditor key={sel_.id} row={sel_} terms={termsFor(terms, sel_.partner, sel_.branch)} canEdit={canEdit} canApprove={canApprove} by={by} onClose={() => setOpen(null)} onUpload={() => pickFile(sel_)} />}
+      {sel_ && <StatementEditor key={sel_.id} row={sel_} terms={termsFor(terms, sel_.partner, sel_.branch, sel_.week)} canEdit={canEdit} canApprove={canApprove} by={by} onClose={() => setOpen(null)} onUpload={() => pickFile(sel_)} />}
 
       <p className="mt-4 flex items-start gap-1.5 text-xs text-slate-500">
         <FileCheck2 size={14} className="mt-0.5 shrink-0" />

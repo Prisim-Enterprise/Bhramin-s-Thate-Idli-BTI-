@@ -81,7 +81,31 @@ export const KIND_RULES: Record<string, { write: [ModuleId, Action[]][]; remove:
   // Opening BRS: cheques and deposits from before the books started that the bank hadn't cleared.
   bankOpening: { write: [['accounts', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']]] },
   // Partner terms: commission agreed with Swiggy / Zomato / … and the approved advertisement budget (set by approvers).
-  partnerTerms: { write: [['accounts', ['approve']]], remove: [['accounts', ['approve', 'delete']]] },
+  // Partner terms and Zomato calculation rules (versioned by date): admins only (Control Panel settings).
+  partnerTerms: { write: [['settings', ['edit']]], remove: [['settings', ['edit', 'delete']]] },
+  // Aggregator Reconciliation: bank credits matched to weekly statements (many to many), and restaurant ID → outlet.
+  bankMatches: { write: [['accounts', ['edit', 'approve']]], remove: [['accounts', ['edit', 'approve']]] },
+  aggregatorOutlets: { write: [['accounts', ['create', 'edit']]], remove: [['settings', ['edit']]] },
+}
+
+/**
+ * A finalised weekly statement is locked. Changing it is allowed only when the money and approvals stay exactly as
+ * finalised (e.g. a note), or when it is reopened: the finalised mark removed and a revision with a reason added,
+ * by someone who may approve accounts. Returns the reason it is refused, or null.
+ */
+export function settlementChangeRefused(existing: Record<string, unknown> | null, incoming: Record<string, unknown>, canApprove: boolean): string | null {
+  const fin = existing?.finalised as { at?: string } | null | undefined
+  if (!fin) return null
+  const LOCKED = ['gross', 'deductions', 'statementNet', 'commissionBase', 'zomato', 'adApprovals', 'received', 'branch', 'date', 'partner']
+  const same = (k: string) => JSON.stringify(existing?.[k] ?? null) === JSON.stringify(incoming[k] ?? null)
+  const stillFinal = (incoming.finalised as { at?: string } | null | undefined)?.at === fin.at
+  if (stillFinal) return LOCKED.every(same) ? null : 'This week is finalised. Reopen it with a reason before changing its figures.'
+  const before = Array.isArray(existing?.revisions) ? (existing!.revisions as unknown[]).length : 0
+  const after = Array.isArray(incoming.revisions) ? (incoming.revisions as { reason?: string }[]) : []
+  if (!canApprove) return 'Only someone who can approve accounts can reopen a finalised week.'
+  if (after.length !== before + 1 || !(after[after.length - 1]?.reason ?? '').trim()) return 'Reopening a finalised week needs a reason (a new revision).'
+  if (!LOCKED.every(same)) return 'Reopen the week first, then change it.'
+  return null
 }
 // Uploading files (bills, receipts) and reading handwritten bills.
 export const FILE_RULE: [ModuleId, Action[]][] = [['ocr', ['create']], ['accounts', ['create']]]

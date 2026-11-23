@@ -1,5 +1,5 @@
 import { readBillWithSarvam, readStatementWithSarvam } from './sarvam'
-import { DEFAULT_MATRIX, FILE_RULE, KIND_RULES, ROLES, allowed, cleanMatrix, type Matrix, type Role } from './permissions'
+import { DEFAULT_MATRIX, FILE_RULE, KIND_RULES, ROLES, allowed, cleanMatrix, settlementChangeRefused, type Matrix, type Role } from './permissions'
 import { UserError, createLogin, listLogins, updateLogin } from './users'
 
 // BTI API: saves dashboard records in D1 and bill files in R2.
@@ -286,12 +286,26 @@ async function handle(req: Request, env: Env): Promise<Response> {
     const m = await matrix(env)
     const existing = id ? await env.DB.prepare('SELECT branch FROM docs WHERE kind = ? AND id = ?').bind(kind, id).first<{ branch: string | null }>() : null
     const otherBranch = (b: string | null | undefined) => !!only && !!b && b !== only
+    // Finalised weekly statements (Aggregator Reconciliation) are locked, and so are their bank matches.
+    const dataOf = async (k: string, i: string) => {
+      const r = await env.DB.prepare('SELECT data FROM docs WHERE kind = ? AND id = ?').bind(k, i).first<{ data: string }>()
+      return r ? (JSON.parse(r.data) as Record<string, unknown>) : null
+    }
+    const finalisedWeek = async (settlement: unknown) => typeof settlement === 'string' && !!(await dataOf('settlements', settlement))?.finalised
 
     if (req.method === 'PUT' && id) {
       if (!allowed(m, user.role, rules.write)) return json({ error: `Your role (${user.role}) can only view.` }, 403)
       const doc = (await req.json()) as Record<string, unknown>
       const branch = typeof doc.branch === 'string' ? doc.branch : null
       if (otherBranch(branch) || otherBranch(existing?.branch)) return json({ error: 'Your login can only change records of your own branch.' }, 403)
+      if (kind === 'settlements') {
+        const refused = settlementChangeRefused(await dataOf(kind, id), doc, allowed(m, user.role, [['accounts', ['approve']]]))
+        if (refused) return json({ error: refused }, 409)
+      }
+      if (kind === 'bankMatches') {
+        const before = await dataOf(kind, id)
+        if ((await finalisedWeek(doc.settlementId)) || (before && (await finalisedWeek(before.settlementId)))) return json({ error: 'That week is finalised. Reopen it before changing its bank matches.' }, 409)
+      }
       const body = JSON.stringify({ ...doc, id })
       if (body.length > 900_000) return json({ error: 'Record too large. Upload big files separately.' }, 413)
       const date = typeof doc.date === 'string' ? doc.date : null
@@ -306,11 +320,29 @@ async function handle(req: Request, env: Env): Promise<Response> {
     if (req.method === 'DELETE' && id) {
       if (!allowed(m, user.role, rules.remove)) return json({ error: `Your role (${user.role}) can't delete.` }, 403)
       if (otherBranch(existing?.branch)) return json({ error: 'Your login can only change records of your own branch.' }, 403)
+      if (kind === 'settlements' && (await dataOf(kind, id))?.finalised) return json({ error: 'That week is finalised and cannot be deleted.' }, 409)
+      if (kind === 'bankMatches' && (await finalisedWeek((await dataOf(kind, id))?.settlementId))) return json({ error: 'That week is finalised. Reopen it before changing its bank matches.' }, 409)
       await env.DB.prepare('DELETE FROM docs WHERE kind = ? AND id = ?').bind(kind, id).run()
       await audit(env, user.email, 'delete', kind, id)
       return json({ ok: true })
     }
     return json({ error: 'Not allowed' }, 405)
+  }
+
+  // POST /api/import/sheet {url} -> the Google Sheet as .xlsx (Aggregator Reconciliation: a statement kept in Google Sheets).
+  // Only docs.google.com spreadsheets, fetched by ID; the sheet must be shared "anyone with the link can view".
+  if (parts[1] === 'import' && parts[2] === 'sheet' && req.method === 'POST') {
+    if (!allowed(await matrix(env), user.role, [['accounts', ['create', 'edit']]])) return json({ error: `Your role (${user.role}) can't import statements.` }, 403)
+    const { url: link } = (await req.json().catch(() => ({}))) as { url?: string }
+    const sheetId = String(link ?? '').match(/^https:\/\/docs\.google\.com\/spreadsheets\/d\/([A-Za-z0-9_-]{20,100})(?:[/?#]|$)/)?.[1]
+    if (!sheetId) return json({ error: 'Paste a Google Sheets link (https://docs.google.com/spreadsheets/d/…).' }, 400)
+    const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`, { redirect: 'follow' })
+    const type = res.headers.get('Content-Type') ?? ''
+    if (!res.ok || !/spreadsheetml|octet-stream/.test(type)) return json({ error: 'Could not open that sheet. Share it as “Anyone with the link can view”, or download it as Excel and upload the file.' }, 400)
+    const bytes = await res.arrayBuffer()
+    if (bytes.byteLength > 15 * 1024 * 1024) return json({ error: 'That sheet is larger than 15 MB.' }, 413)
+    await audit(env, user.email, 'import-sheet', 'settlements', sheetId)
+    return new Response(bytes, { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'X-Sheet-Id': sheetId } })
   }
 
   // GET /api/read-bill/usage  ->  { used, limit }   (handwritten reads today)

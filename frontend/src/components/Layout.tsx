@@ -6,8 +6,7 @@ import AccountMenu from './AccountMenu'
 import StockAlerts from './StockAlerts'
 import { DashboardsOffBanner } from './DashboardPower'
 import {
-  ScanLine, BookOpenCheck, ClipboardList, Warehouse, ShoppingCart, Store, Settings2, Building2, IndianRupee, Receipt, Cpu, PackagePlus, MinusCircle, Wallet, Users, ShieldCheck, Plug, Scale, Calculator, Library, ChevronRight, ChefHat, Menu, X, LogOut, CreditCard, FileCheck2, type LucideIcon, Truck, ArrowLeftRight, Activity, Network, PanelLeftClose, PanelLeftOpen,
-} from 'lucide-react'
+  ScanLine, BookOpenCheck, ClipboardList, Warehouse, ShoppingCart, Store, Settings2, Building2, IndianRupee, Receipt, Cpu, PackagePlus, MinusCircle, Wallet, Users, ShieldCheck, Plug, Scale, Calculator, Library, ChevronRight, ChefHat, Menu, X, LogOut, CreditCard, FileCheck2, type LucideIcon, Truck, ArrowLeftRight, Activity, Network, PanelLeftClose, PanelLeftOpen, Landmark } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { IS_DEMO } from '../config'
@@ -66,6 +65,7 @@ export const HUBS: Record<HubId, { label: string; icon: LucideIcon; to: string; 
       { to: '/admin/accounting/bills', label: 'OCR Bill Inbox', icon: ScanLine, module: 'ocr', desc: 'Check bills read by OCR' },
       { to: '/admin/accounting/mobikwik', label: 'Mobikwik', icon: CreditCard, module: 'sales', desc: 'Cash, UPI and card taken at the counter' },
       { to: '/admin/accounting/reconcile', label: 'Reconcile', icon: FileCheck2, module: 'accounts', desc: 'Partner payouts: deductions approved, receipts matched' },
+      { to: '/admin/accounting/aggregator', label: 'Aggregator Reconciliation', icon: Landmark, module: 'accounts', desc: 'Zomato: what is owed, what reached the bank, the difference' },
     ],
   },
   kitchen: {

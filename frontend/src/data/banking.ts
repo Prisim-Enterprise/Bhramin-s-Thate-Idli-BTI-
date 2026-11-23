@@ -15,6 +15,7 @@ const recos = cloudStore<BankReco>('prisim.bankRecos', { kind: 'bankRecos', idOf
 const lines = cloudStore<BankLine>('prisim.bankLines', { kind: 'bankLines', idOf: (l) => l.id })
 export const useBankRecos = recos.use
 export const useBankLines = lines.use
+export const bankLinesNow = () => lines.get()
 
 /** Opening BRS (Tally): cheques issued or deposited before the books start that the bank hadn't cleared by then.
  *  They are already inside the bank ledger's opening balance, so they only show in the reconciliation. */
