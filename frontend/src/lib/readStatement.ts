@@ -64,7 +64,11 @@ export function branchIn(text: string): string | undefined {
     for (let i = 0; i < words.length; i++) for (let k = 1; k <= n + 1 && i + k <= words.length; k++)
       if (skeleton(words.slice(i, i + k).join('')) === want) return b.id
   }
-  return undefined
+  // Just the first word of an outlet's name ("Rajajinagar" for "Rajajinagar Metro"), when only one outlet starts with it.
+  const firsts = outlets.map((b) => ({ id: b.id, first: skeleton(b.name.split(/\s+/)[0]) })).filter((x) => x.first.length >= 5)
+  const seen = new Set(words.map(skeleton))
+  const hits = firsts.filter((x) => seen.has(x.first) && firsts.filter((y) => y.first === x.first).length === 1)
+  return hits.length === 1 ? hits[0].id : undefined
 }
 
 /**

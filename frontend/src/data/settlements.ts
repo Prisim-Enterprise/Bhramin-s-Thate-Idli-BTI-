@@ -15,7 +15,8 @@ import type { ZRules, ZStatement } from './aggregator/zomatoEngine'
 
 /* ---------- Mobikwik: UPI / card split per outlet and day ---------- */
 
-export type PaySplit = { id: string; branch: string; date: string; upi: number; card: number; addedBy: string; addedAt: string }
+// report / payments / file: filled from Mobikwik's Transactions Report (its own total for the day, to check the Imprest Book).
+export type PaySplit = { id: string; branch: string; date: string; upi: number; card: number; report?: number; payments?: number; file?: string; addedBy: string; addedAt: string }
 const splits = cloudStore<PaySplit>('prisim.paySplits', { kind: 'paySplits', idOf: (s) => s.id })
 export const usePaySplits = splits.use
 export const splitId = (branch: string, date: string) => `${branch}:${date}`
@@ -23,8 +24,14 @@ export function saveSplit(s: Omit<PaySplit, 'id'>) {
   const id = splitId(s.branch, s.date)
   return splits.set([{ ...s, id }, ...splits.get().filter((x) => x.id !== id)])
 }
+/** Save many days at once (a Mobikwik report): one write instead of one per day. */
+export function saveSplits(list: Omit<PaySplit, 'id'>[]) {
+  const ids = new Set(list.map((s) => splitId(s.branch, s.date)))
+  return splits.set([...list.map((s) => ({ ...s, id: splitId(s.branch, s.date) })), ...splits.get().filter((x) => !ids.has(x.id))])
+}
+export const paySplitsNow = () => splits.get()
 
-export type PayDay = { date: string; branch: string; cash: number; mobikwik: number; upi: number | null; card: number | null; total: number; split: PaySplit | null }
+export type PayDay = { date: string; branch: string; cash: number; mobikwik: number; upi: number | null; card: number | null; total: number; split: PaySplit | null; report: number | null }
 
 /** How each day's money came in at the counter: cash, UPI, card. */
 export function payDays(entries: DayEntry[], all: PaySplit[]): PayDay[] {
@@ -32,7 +39,7 @@ export function payDays(entries: DayEntry[], all: PaySplit[]): PayDay[] {
   return entries.map((e) => {
     const s = byId.get(splitId(e.branch, e.date)) ?? null
     const cash = r2(cashIn(e))
-    return { date: e.date, branch: e.branch, cash, mobikwik: e.mobikwik, upi: s ? s.upi : null, card: s ? s.card : null, total: r2(cash + e.mobikwik), split: s }
+    return { date: e.date, branch: e.branch, cash, mobikwik: e.mobikwik, upi: s ? s.upi : null, card: s ? s.card : null, total: r2(cash + e.mobikwik), split: s, report: s?.report ?? null }
   }).sort((a, b) => b.date.localeCompare(a.date) || a.branch.localeCompare(b.branch))
 }
 

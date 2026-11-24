@@ -62,10 +62,10 @@ export async function pdfPageLines(file: Blob): Promise<string[][]> {
   return pages
 }
 
-export async function readImprestPdf(file: File): Promise<ReadResult> {
+export async function readImprestPdf(file: File, already?: string[]): Promise<ReadResult> {
   let lines: string[]
   try {
-    lines = await pdfLines(file)
+    lines = already?.length ? already : await pdfLines(file)
   } catch (err) {
     // After the dashboard is updated, a page left open asks for the old PDF reader file, which is gone.
     if (/dynamically imported module|Importing a module script failed|Failed to fetch|ChunkLoadError|Unable to preload/i.test(String(err))) {

@@ -9,7 +9,8 @@ import {
   type DayEntry, type PayoutType,
 } from '../data/entries'
 import { useAuth } from '../context/AuthContext'
-import { readImprestPdf } from '../lib/readImprestPdf'
+import { pdfLines, readImprestPdf } from '../lib/readImprestPdf'
+import { isCashBook } from '../lib/readCashBook'
 import { debitLines, groupOf, reportOf, useCustomLedgers, useManualVouchers } from '../data/ledgerStore'
 import { imprestLedger } from '../data/books'
 
@@ -19,11 +20,40 @@ type Upload = {
   text: string
   entry?: DayEntry
   savedId?: string
+  link?: { to: string; label: string }
 }
 
-/** Read one Imprest Book PDF; save it straight away when it balances to the printed closing balance. */
+const signed = (n: number) => `${inr(Math.abs(n))} ${n < 0 ? 'Cr' : 'Dr'}`
+
+/** A Tally Cash Book: posted voucher by voucher against Cash, only when its vouchers come to its closing balance. */
+async function importCashBook(file: File, text: string[], by: string): Promise<Upload> {
+  const { parseCashBook } = await import('../lib/readCashBook')
+  const { CASH_LEDGER, cashBalanceBefore, postCashBook } = await import('../data/cashBook')
+  const r = parseCashBook(text)
+  if (!r.ok) return { file: file.name, outcome: 'failed', text: r.reason }
+  const when = r.from === r.to ? niceDate(r.from) : `${niceDate(r.from)} – ${niceDate(r.to)}`
+  if (r.balanced === false) {
+    return { file: file.name, outcome: 'failed', text: `Cash Book ${when}: the ${r.vouchers.length} vouchers read (in ${inr(r.totalIn)}, out ${inr(r.totalOut)}) don't come to the printed closing balance, so nothing was posted. Save the Cash Book from Tally again as PDF and upload it.` }
+  }
+  const before = cashBalanceBefore(r.from)
+  const p = postCashBook(r, by, file.name)
+  const link = { to: `/admin/accounting/books?book=ledger&ledger=${encodeURIComponent(CASH_LEDGER)}`, label: 'Open Cash' }
+  const opening = Math.abs(before - r.opening) < 0.01 ? ' Opening balance agrees with the books ✓.'
+    : ` Opening balance on the Cash Book is ${signed(r.opening)}, the books have ${signed(before)} before ${niceDate(r.from)}: enter the Cash ledger's opening balance or the earlier days' Cash Books.`
+  if (!p.posted) return { file: file.name, outcome: 'duplicate', text: `Cash Book ${when}: all ${p.already} vouchers are already posted.`, link }
+  return {
+    file: file.name, outcome: r.skipped.length ? 'check' : 'saved', link,
+    text: `Cash Book ${when}: ${p.posted} voucher(s) posted to Cash (in ${inr(r.totalIn)}, out ${inr(r.totalOut)}, closing ${signed(r.closing ?? 0)}${r.balanced ? ' ✓' : ''})` +
+      (p.already ? `, ${p.already} already posted` : '') + (p.newLedgers.length ? `. ${p.newLedgers.length} new ledger(s): ${p.newLedgers.slice(0, 4).join(', ')}${p.newLedgers.length > 4 ? ' …' : ''}` : '') + '.' + opening +
+      (r.skipped.length ? ` ${r.skipped.length} line(s) need a look: ${r.skipped.slice(0, 2).join('; ')}` : ''),
+  }
+}
+
+/** Read one Imprest Book PDF; save it straight away when it balances to the printed closing balance. A Cash Book goes to its own reader. */
 export async function importImprest(file: File, by: string): Promise<Upload> {
-  const r = await readImprestPdf(file)
+  const text = await pdfLines(file).catch(() => [] as string[])
+  if (isCashBook(text)) return importCashBook(file, text, by)
+  const r = await readImprestPdf(file, text)
   if (!r.ok) return { file: file.name, outcome: 'failed', text: r.reason }
   const e = r.entry
   const what = `${branchName(e.branch)} · ${niceDate(e.date)}`
@@ -74,7 +104,7 @@ export function AddEntryButtons({ disabled }: { disabled?: boolean }) {
     setBusy(null)
     if (input.current) input.current.value = ''
     // One PDF that needs checking: open it on the entry screen, as before.
-    if (out.length === 1 && out[0].outcome === 'check') return navigate('/admin/accounting/entry', { state: { entry: out[0].entry } })
+    if (out.length === 1 && out[0].outcome === 'check' && out[0].entry) return navigate('/admin/accounting/entry', { state: { entry: out[0].entry } })
     setResults(out)
   }
 
@@ -85,7 +115,7 @@ export function AddEntryButtons({ disabled }: { disabled?: boolean }) {
           className="inline-flex items-center gap-2 rounded-xl border-2 border-[#7a2228] bg-white px-4 py-2.5 font-semibold text-[#7a2228] hover:bg-[#fbf3e4] disabled:opacity-50">
           <PencilLine size={18} /> Enter manually
         </button>
-        <button disabled={disabled || !!busy} onClick={() => input.current?.click()} title="Imprest Book PDFs from Tally. You can pick several at once."
+        <button disabled={disabled || !!busy} onClick={() => input.current?.click()} title="Imprest Book or Cash Book PDFs from Tally. You can pick several at once."
           className="inline-flex items-center gap-2 rounded-xl bg-[#7a2228] px-4 py-2.5 font-semibold text-white hover:bg-[#5a1a1f] disabled:opacity-50">
           {busy ? <Loader2 size={18} className="animate-spin" /> : <FileUp size={18} />} {busy ?? 'Upload PDF'}
         </button>
@@ -96,7 +126,7 @@ export function AddEntryButtons({ disabled }: { disabled?: boolean }) {
       {results.length > 0 && (
         <div className="absolute left-0 top-full z-30 mt-2 w-[min(36rem,calc(100vw-2rem))] sm:left-auto sm:right-0 rounded-xl border border-slate-200 bg-white p-3 text-left text-sm shadow-lg" role="status">
           <div className="mb-2 flex items-center justify-between">
-            <b>Imprest Book upload</b>
+            <b>Imprest Book / Cash Book upload</b>
             <button className="text-slate-400 hover:text-slate-700" aria-label="Close" onClick={() => setResults([])}><X size={16} /></button>
           </div>
           <ul className="space-y-2">
@@ -118,13 +148,14 @@ export function AddEntryButtons({ disabled }: { disabled?: boolean }) {
                     setResults(results.map((x) => (x === r ? { ...x, outcome: 'saved', text: `${branchName(r.entry!.branch)} · ${niceDate(r.entry!.date)} replaced with this PDF` } : x)))
                   }}>Replace</button>
                 )}
+                {r.link && <Link className="shrink-0 font-medium text-[#7a2228] hover:underline" to={r.link.to}>{r.link.label}</Link>}
                 {r.savedId && r.outcome !== 'check' && (
                   <Link className="shrink-0 font-medium text-[#7a2228] hover:underline" to={`/admin/accounting/entry/${r.savedId}`}>Open</Link>
                 )}
               </li>
             ))}
           </ul>
-          {results.some((r) => r.outcome === 'saved') && (
+          {results.some((r) => r.outcome === 'saved' && r.savedId) && (
             <p className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
               Saved days now show in the Sales, Expenses, Purchases, Food Cost, Deductions and Profit &amp; Loss reports, and in Account Books.
             </p>
