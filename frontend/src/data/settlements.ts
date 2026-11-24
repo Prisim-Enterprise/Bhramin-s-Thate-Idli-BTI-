@@ -64,6 +64,8 @@ export type Settlement = {
   branch: string
   date: string // week start (Monday)
   weekEnd: string // Sunday
+  periodFrom?: string // the statement's own first and last day, when it isn't Monday–Sunday (Swiggy runs Sunday–Saturday)
+  periodTo?: string
   gross: number | null // gross sales as per the partner's statement
   deductions: Deduction[]
   received: number | null // what actually reached the bank
@@ -71,6 +73,7 @@ export type Settlement = {
   utr?: string // bank reference
   note: string
   statementNet?: number | null // net payout as printed on the statement (to cross-check our working)
+  outletRef?: string // the partner's own ID for this outlet (Swiggy Rest. ID, Zomato Res id): later statements with it go to the same outlet
   commissionBase?: number | null // the amount commission is charged on (Zomato: commissionable value); gross when not given
   bankLineId?: string // the bank statement line the payout was matched to (Banking → Bank Reconciliation)
   receivedFrom?: string // bank ledger the payout reached, when matched from a bank statement
@@ -222,7 +225,8 @@ export function syncSettlementVoucher(s: Settlement, by: string) {
 
 // Who the credit comes from, as it shows on a bank statement (Swiggy pays as Bundl Technologies, Rapido as Roppen).
 const PAYER: Record<string, RegExp> = {
-  swiggy: /swiggy|bundl/i, zomato: /zomato|eternal\s+l(imi)?te?d/i, rapido: /rapido|roppen/i, mobikwik: /mobikwik/i,
+  // Swiggy payouts for outlets with an Indifi loan come through Indifi's escrow account ("NEFT-IDFB-…-Indifi").
+  swiggy: /swiggy|bundl|indifi/i, zomato: /zomato|eternal\s+l(imi)?te?d/i, rapido: /rapido|roppen/i, mobikwik: /mobikwik/i,
 }
 
 /**
@@ -231,10 +235,12 @@ const PAYER: Record<string, RegExp> = {
  * Returns nothing when there is no clear single match.
  */
 export function payoutCredit(s: Settlement, net: number | null, lines: BankLine[], taken: Set<string>): BankLine | null {
-  const from = lines.filter((l) => !l.ignored && l.deposit > 0 && !taken.has(l.id) && !!PAYER[s.partner]?.test(l.narration + ' ' + l.ref))
-  if (s.utr) { const u = from.find((l) => (l.narration + ' ' + l.ref).includes(s.utr!)); if (u) return u }
+  const open = lines.filter((l) => !l.ignored && l.deposit > 0 && !taken.has(l.id))
+  // The statement's UTR in a bank credit is proof on its own, whatever name the bank prints for the payer.
+  if (s.utr && s.utr.length >= 8) { const u = open.find((l) => (l.narration + ' ' + l.ref).toUpperCase().includes(s.utr!.toUpperCase())); if (u) return u }
+  const from = open.filter((l) => !!PAYER[s.partner]?.test(l.narration + ' ' + l.ref))
   if (net == null || net <= 0) return null
-  const end = weekEndOf(s.date), last = addDays(end, 21)
+  const end = s.periodTo ?? weekEndOf(s.date), last = addDays(end, 21)
   const near = from.filter((l) => Math.abs(l.deposit - net) <= TOLERANCE && l.date >= end && l.date <= last)
   return near.length === 1 ? near[0] : null
 }
@@ -279,8 +285,9 @@ export type StatementRow = {
 
 export function statementRow(partner: PartnerId, branch: string, week: string, entries: DayEntry[], s: Settlement | null, allTerms: PartnerTerms[] = []): StatementRow {
   const field = PARTNERS.find((p) => p.id === partner)!.field
-  const end = weekEndOf(week)
-  const books = r2(entries.filter((e) => e.branch === branch && e.date >= week && e.date <= end).reduce((t, e) => t + e[field], 0))
+  // Sales in the books for the statement's own days (its printed period), else Monday to Sunday.
+  const from = s?.periodFrom ?? week, end = s?.periodTo ?? weekEndOf(week)
+  const books = r2(entries.filter((e) => e.branch === branch && e.date >= from && e.date <= end).reduce((t, e) => t + e[field], 0))
   const ded = s?.deductions ?? []
   const sum = (f: (d: Deduction) => boolean) => r2(ded.filter(f).reduce((t, d) => t + d.amount, 0))
   const commission = sum((d) => d.kind === 'commission')

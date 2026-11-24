@@ -232,7 +232,8 @@ export function parseBillLines(raw: string[]): BillRead {
     }
     let it: ReadLine | null = null
     // Name on one line, figures on the next ("Sunflower Oil" / "15 ltr 150.00 2250.00").
-    const figuresOnly = /\d/.test(l) && !/[a-zಀ-೿]{2,}/i.test(l.replace(/\b(kg|kgs|g|gm|gms|ltr|l|ml|nos|pcs|pkt|box|bag|tin|dozen|doz)\b\.?/gi, ''))
+    // Units, and GST unit codes printed on e-invoices (OTH, UNT, NOS …), don't make a line a name.
+    const figuresOnly = /\d/.test(l) && !/[a-zಀ-೿]{2,}/i.test(l.replace(/\b(kg|kgs|g|gm|gms|ltr|l|ml|nos|pcs|pkt|box|bag|tin|dozen|doz|oth|unt|bag|btl|ctn|set)\b\.?/gi, ''))
     if (held && figuresOnly) {
       it = readItem(held.text + ' ' + l)
       if (it && held.on) undoDesc(held.on, held.text)

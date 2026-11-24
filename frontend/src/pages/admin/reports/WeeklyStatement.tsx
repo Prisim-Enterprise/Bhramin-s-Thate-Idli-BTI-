@@ -318,11 +318,13 @@ export default function WeeklyStatement() {
     try { r = await readStatementFile(file, setReading) } finally { setReading(null) }
     const t = target.current
     const p = (t?.partner ?? r.partner ?? (partner || undefined)) as PartnerId | undefined
-    const b = t?.branch ?? r.branch ?? (branch || undefined)
+    // The outlet: the row it was uploaded on, the name on the statement, the outlet this partner ID went to before, or the filter.
+    const known = r.outletRef ? all.find((x) => x.partner === (t?.partner ?? r.partner) && x.outletRef === r.outletRef)?.branch : undefined
+    const b = t?.branch ?? r.branch ?? known ?? (branch || undefined)
     const w = t?.week ?? r.week ?? week
     if (r.method === 'none') return setMsg({ tone: 'error', text: r.note })
     if (!p || !b) {
-      return setMsg({ tone: 'error', text: `Read the statement, but couldn't tell ${!p ? 'which partner (Swiggy, Zomato …)' : 'which outlet'} it is for. Pick it in the filters above, or open the row and use “Upload statement” there.` })
+      return setMsg({ tone: 'error', text: `Read the statement, but couldn't tell ${!p ? 'which partner (Swiggy, Zomato …)' : 'which outlet'} it is for. Pick it in the filters above, or open the row and use “Upload statement” there.${p && r.outletRef ? ` After that, ${partnerName(p)} ID ${r.outletRef} goes to that outlet by itself.` : ''}` })
     }
     const id = settlementId(p, b, w)
     const old = all.find((x) => x.id === id)
@@ -335,7 +337,9 @@ export default function WeeklyStatement() {
       deductions: r.deductions.map((d) => ({ ...d, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6) })),
       received: old?.received ?? null, receivedOn: old?.receivedOn, utr: r.utr ?? old?.utr,
       note: old?.note ?? '', statementNet: r.netPayout ?? null, commissionBase: r.commissionBase ?? old?.commissionBase ?? null, file: kept,
-      bankLineId: old?.bankLineId, receivedFrom: old?.receivedFrom,
+      bankLineId: old?.bankLineId, receivedFrom: old?.receivedFrom, outletRef: r.outletRef ?? old?.outletRef,
+      // The statement's own days (Swiggy: Sunday to Saturday), so the sales are checked against the same days in the books.
+      periodFrom: r.from && r.to ? r.from : undefined, periodTo: r.from && r.to ? r.to : undefined,
       readNote: r.note + (r.from ? ` Period on statement: ${niceDate(r.from)}${r.to ? ' – ' + niceDate(r.to) : ''}.` : ''),
       addedBy: old?.addedBy ?? by, addedAt: old?.addedAt ?? now, updatedBy: by, updatedAt: now,
     }

@@ -162,7 +162,11 @@ export async function readZomatoFile(file: File): Promise<ZRead & { hash: string
   if (/\.xlsx$/i.test(file.name)) {
     try {
       const { xlsxWorkbook } = await import('./xlsx')
-      return { ...readZomatoSheets(await xlsxWorkbook(file)), hash }
+      const book = await xlsxWorkbook(file)
+      const summary = book.find((s) => /^summary$/i.test(s.name.trim()))
+      if (summary && summary.rows.slice(0, 15).some((r) => r.some((c) => /#REF!/i.test(c ?? ''))))
+        return { statement: null, errors: ['This Zomato report has been changed after it was downloaded: its figures show #REF! (opened and saved again in Excel or Google Sheets breaks its formulas). Download the Settlement Report again from the Zomato partner dashboard and upload it without opening and saving it.'], warnings: [], hash }
+      return { ...readZomatoSheets(book), hash }
     } catch (e) {
       return { statement: null, errors: [`Could not open this Excel file: ${e instanceof Error ? e.message : String(e)}`], warnings: [], hash }
     }

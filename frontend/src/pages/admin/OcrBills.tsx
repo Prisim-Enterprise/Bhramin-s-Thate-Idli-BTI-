@@ -189,7 +189,14 @@ export default function OcrBills() {
     try {
       const { pdfPagesToImages } = await import('../../lib/ocr')
       const texts = script === 'en-typed' ? await pdfPageLines(file).catch(() => null) : null
-      const images = await pdfPagesToImages(file, 40)
+      let images = await pdfPagesToImages(file, 40)
+      // A printed bill that runs onto a second page (terms, bank details): a page with no items and no
+      // total of its own belongs to the bill before it, not a bill of its own.
+      if (texts && texts.length === images.length) {
+        const keep = images.map((_, i) => i === 0 || (() => { const r = parseBillLines(texts[i]); return r.lines.length > 0 || r.total != null })())
+        texts.splice(0, texts.length, ...texts.filter((_, i) => keep[i]))
+        images = images.filter((_, i) => keep[i])
+      }
       if (images.length <= 1) {
         setMessage(null)
         const b = await addBill(file, script, branch)
@@ -579,6 +586,12 @@ export default function OcrBills() {
                       {tds.lines.map((t) => <li key={t.ledger}>TDS {t.note}.</li>)}
                       {tds.notes.map((n) => <li key={n}>{n}</li>)}
                     </ul>
+                  )}
+                  {/swiggy|bundl|zomato|eternal\s+l/i.test(sel.vendor ?? '') && (
+                    <p data-testid="partner-invoice" className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                      This is Swiggy's / Zomato's own invoice for the fees they took from the weekly payout. Those fees are already posted from Reconcile when the week's deductions are approved, so posting this bill too would count them twice. Keep it as the GST invoice for input credit; don't post it.
+                    </p>
                   )}
                   {sums.mismatch !== 0 && (
                     <p className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">

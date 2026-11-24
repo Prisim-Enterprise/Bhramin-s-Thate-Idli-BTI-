@@ -22,6 +22,7 @@ export type StatementRead = {
   utr?: string
   orders?: number // orders on the statement
   commissionBase?: number // what the commission is charged on (Zomato: total commissionable value)
+  outletRef?: string // the partner's own ID for the outlet (Swiggy Rest. ID, Zomato Res id), to remember which outlet it is
   pending?: number // part of the payout the partner had not paid yet when the report was made
 }
 
@@ -48,12 +49,73 @@ const SKIP = /total\s+(deductions?|charges|fees|taxes)|gstin|\bpan\b|address|pho
 const GROSS = /gross\s+(order\s+)?(value|sales|amount)|total\s+(order\s+value|sales|bill\s+value)|item\s+total|customer\s+payable|order\s+value|gross\s+receipts?|total\s+collection|sales\s+value/i
 const NET = /net\s*(payout|payable|settlement|amount\s+(paid|payable|settled)|receivable)|amount\s+(credited|settled|transferred|paid\s+out)|final\s+payout|settlement\s+amount|payout\s+amount|net\s+transfer/i
 
+/**
+ * Which outlet a piece of text names. Partners spell outlets their own way ("Malleswaram", "Kodigaehalli",
+ * "Sahakaranagar", "Vayalikaval"), so after an exact match the names are compared by their consonants.
+ */
+const skeleton = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '').replace(/(?!^)[aeiouh]/g, '').replace(/(.)\1+/g, '$1')
+export function branchIn(text: string): string | undefined {
+  const outlets = BRANCHES.filter((b) => b.id !== 'CK')
+  const exact = outlets.find((b) => new RegExp(b.name.replace(/\s+/g, '\\s*'), 'i').test(text))
+  if (exact) return exact.id
+  const words = text.toLowerCase().split(/[^a-z]+/).filter(Boolean)
+  for (const b of outlets) {
+    const want = skeleton(b.name), n = b.name.split(/\s+/).length
+    for (let i = 0; i < words.length; i++) for (let k = 1; k <= n + 1 && i + k <= words.length; k++)
+      if (skeleton(words.slice(i, i + k).join('')) === want) return b.id
+  }
+  return undefined
+}
+
+/**
+ * Swiggy's weekly payout annexure (Excel): Summary (outlet, period, total payout, UTR) and Payout Breakup
+ * (A customer paid, B Swiggy fees 6–15, C complaints, D ads, E other charges, F taxes 18–21, G net payout).
+ * Swiggy shows deductions as minus figures; refunds in E come in as minus deductions (additions).
+ */
+export function parseSwiggyWorkbook(sheets: { name: string; rows: string[][] }[]): Omit<StatementRead, 'method' | 'note'> | null {
+  const pb = sheets.find((s) => /payout\s*break/i.test(s.name))?.rows
+  const summary = sheets.find((s) => /^summary$/i.test(s.name.trim()))?.rows ?? []
+  if (!pb || !pb.some((r) => r.some((c) => /swiggy/i.test(c ?? '')))) return null
+  const clean = (s: string) => s.replace(/\s+/g, ' ').trim()
+  const num = (s: string | undefined) => { const n = Number(String(s ?? '').replace(/[₹,\s]/g, '')); return Number.isFinite(n) ? n : 0 }
+  const rows = pb.map((r) => ({ name: clean(r[2] || ''), total: num(r[5]) })).filter((r) => r.name)
+  const total = (re: RegExp) => rows.filter((r) => re.test(r.name)).reduce((t, r) => t + r.total, 0)
+  const has = (re: RegExp) => rows.some((r) => re.test(r.name))
+  const deductions: Omit<Deduction, 'id'>[] = []
+  const add = (kind: DeductionKind, label: string, v: number) => { const a = r2(-v); if (Math.abs(a) >= 0.01) deductions.push({ kind, label, amount: a }) }
+  add('commission', 'Commission', total(/^commission$/i))
+  add('other', 'Long distance charges', total(/^long distance/i))
+  add('gateway', 'Payment collection charges', total(/^payment collection/i))
+  add('other', 'Other Swiggy fees (Swiggy One, Bolt, call centre, cancellations …)', total(/^(pocket hero|swiggy one fees|restaurant cancellation|call cent|delivery fee sponsored|bolt fees|no fees week)/i))
+  add('other', 'Customer complaints & cancelled orders', total(/^customer complaints/i))
+  add('ads', 'Ads (growth investment)', total(/^growth investment/i))
+  add('other', 'Other charges and refunds', total(/^other charges and refunds/i))
+  add('gst', 'Customer GST paid by Swiggy (sec 9(5))', total(/^gst deduction/i))
+  add('gst', 'GST 18% on service fee', total(/^gst on service fee/i))
+  add('tds', 'TDS + TCS', total(/^(tds|tcs)$/i))
+  const gross = has(/^total customer paid/i) ? r2(total(/^total customer paid/i)) : undefined
+  const netPayout = has(/^net payout/i) ? r2(total(/^net payout/i)) : undefined
+  // Summary: "Label | value" rows, plus the outlet's name on its own line under the brand.
+  const cells = summary.map((r) => r.map((c) => clean(c ?? '')).filter(Boolean))
+  const sv = (re: RegExp) => cells.find((r) => r.length > 1 && re.test(r[0]))?.[1] ?? ''
+  const utr = sv(/^bank utr/i) || undefined
+  const outletRef = cells.flat().join(' ').match(/rest\.?\s*id\s*[-:]?\s*(\d+)/i)?.[1]
+  const orders = num(sv(/^total orders/i)) || undefined
+  // "16 August - 22 August" has no year: take it from the first order's date.
+  const order = sheets.find((s) => /order\s*level/i.test(s.name))?.rows.flat().find((c) => /^20\d{2}-\d{2}-\d{2}/.test(c ?? ''))
+  const year = order?.slice(0, 4) ?? String(new Date().getFullYear())
+  const [from, to] = sv(/^payout period/i).split(/\s+-\s+|\s+to\s+/i).map((d) => { const s = d.trim().replace(/\b([A-Za-z]{3})[a-z]+\b/, '$1'); return findDate(/\d{4}/.test(s) ? s : `${s} ${year}`) ?? undefined })
+  const branch = branchIn(cells.slice(0, 12).map((r) => r.join(' ')).join(' \n '))
+  // Swiggy's week runs Sunday to Saturday: it is filed under the Monday week most of its days fall in.
+  return { partner: 'swiggy', branch, from, to, week: to ? weekStart(to) : from ? weekStart(from) : undefined, gross, deductions, netPayout, utr, orders, outletRef }
+}
+
 /** Pull the figures out of the statement's text lines. Kept separate so it can be tested. */
 export function parseStatementLines(lines: string[]): Omit<StatementRead, 'method' | 'note'> {
   const text = lines.join('\n')
   const partner = PARTNERS.find((p) => new RegExp(p.name, 'i').test(text))?.id
   // Outlet: a branch name on the statement ("Chandra Layout", "Malleshwaram" …).
-  const branch = BRANCHES.find((b) => b.id !== 'CK' && new RegExp(b.name.replace(/\s+/g, '\\s*'), 'i').test(text))?.id
+  const branch = branchIn(text)
   // Period: the first two dates on the statement.
   const dates = [...text.matchAll(/\b\d{1,2}\s*[-/.\s]\s*(?:\d{1,2}|[A-Za-z]{3,9})\s*[-/.,\s]\s*\d{2,4}\b|\b20\d{2}-\d{2}-\d{2}\b/g)].map((m) => findDate(m[0])).filter((d): d is string => !!d)
   const [from, to] = dates
@@ -141,10 +203,11 @@ export function parseZomatoWorkbook(sheets: { name: string; rows: string[][] }[]
   const sv = (re: RegExp) => clean(summary.find((r) => re.test(clean(r[1] ?? '')))?.[2] ?? '')
   const [from, to] = sv(/^report period/i).split(/\s+-\s+|\s+to\s+/i).map((d) => findDate(d.trim()) ?? undefined)
   const where = `${sv(/^res name/i)} ${sv(/^address/i)}`
-  const branch = BRANCHES.find((b) => b.id !== 'CK' && new RegExp(b.name.replace(/\s+/g, '\\s*'), 'i').test(where))?.id
+  const branch = branchIn(where)
   const utr = sv(/^bank utr/i) || undefined
   const orders = num(sv(/^total orders/i)) || undefined
-  return { partner: 'zomato', branch, from, to, week: from ? weekStart(from) : undefined, gross: gross == null ? undefined : r2(gross), commissionBase: commissionBase ? r2(commissionBase) : undefined, deductions, netPayout: netPayout == null ? undefined : r2(netPayout), utr, settled, pending, orders }
+  const outletRef = sv(/^res id/i) || undefined
+  return { partner: 'zomato', branch, from, to, week: from ? weekStart(from) : undefined, gross: gross == null ? undefined : r2(gross), commissionBase: commissionBase ? r2(commissionBase) : undefined, deductions, netPayout: netPayout == null ? undefined : r2(netPayout), utr, settled, pending, orders, outletRef }
 }
 
 /** Read an uploaded statement file. */
@@ -159,6 +222,16 @@ export async function readStatementFile(file: File, onStep?: (s: string) => void
     try {
       const { xlsxWorkbook } = await import('./xlsx')
       const book = await xlsxWorkbook(file)
+      // Opened and saved again in Excel / Google Sheets: the summary's formulas lose their hidden sheets and show #REF!.
+      const summary = book.find((s) => /^summary$/i.test(s.name.trim()))
+      if (summary && summary.rows.slice(0, 15).some((r) => r.some((c) => /#REF!/i.test(c ?? '')))) {
+        return { method: 'none', deductions: [], note: 'This Zomato report has been changed after it was downloaded: its figures show #REF! (it was probably opened and saved again in Excel or Google Sheets, which breaks its formulas). Download the Settlement Report again from the Zomato partner dashboard and upload it as it is, without opening and saving it.' }
+      }
+      const sw = parseSwiggyWorkbook(book)
+      if (sw) {
+        const rs = (n: number) => '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 2 })
+        return { ...sw, method: 'xlsx', note: `Read the Swiggy payout annexure${sw.orders ? ` (${sw.orders} orders)` : ''}: ${found(sw) || 'no figures found'}${sw.netPayout != null ? ` (net payout ${rs(sw.netPayout)})` : ''}${sw.utr ? `, paid with UTR ${sw.utr}` : ''}. Check every figure, then approve the deductions.` }
+      }
       const z = parseZomatoWorkbook(book)
       if (z) {
         const inr = (n: number) => '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 2 })
@@ -209,7 +282,7 @@ export async function readStatementFile(file: File, onStep?: (s: string) => void
     const from = s.period_from ? findDate(s.period_from) : undefined
     const r = {
       partner: PARTNERS.find((p) => new RegExp(p.name, 'i').test(text))?.id,
-      branch: BRANCHES.find((b) => b.id !== 'CK' && new RegExp(b.name.replace(/\s+/g, '\\s*'), 'i').test(text))?.id,
+      branch: branchIn(text),
       from, to: s.period_to ? findDate(s.period_to) : undefined, week: from ? weekStart(from) : undefined,
       gross: s.gross_sales ?? undefined, deductions, netPayout: s.net_payout ?? undefined, utr: s.utr ?? undefined,
     }
