@@ -231,7 +231,7 @@ export function syncSettlementVoucher(s: Settlement, by: string) {
 /* ---------- The payout in the bank ---------- */
 
 // Who the credit comes from, as it shows on a bank statement (Swiggy pays as Bundl Technologies, Rapido as Roppen).
-const PAYER: Record<string, RegExp> = {
+export const PAYER: Record<string, RegExp> = {
   // Swiggy payouts for outlets with an Indifi loan come through Indifi's escrow account ("NEFT-IDFB-…-Indifi").
   swiggy: /swiggy|bundl|indifi/i, zomato: /zomato|eternal\s+l(imi)?te?d/i, rapido: /rapido|roppen/i, mobikwik: /mobikwik/i,
 }

@@ -38,6 +38,7 @@ import StockSummary from './pages/admin/inventory/StockSummary'
 import MobikwikPayments from './pages/admin/reports/MobikwikPayments'
 import WeeklyStatement from './pages/admin/reports/WeeklyStatement'
 import Documents from './pages/admin/Documents'
+import PartnerPayouts from './pages/admin/reports/PartnerPayouts'
 import AggregatorRecon from './pages/admin/aggregator/AggregatorRecon'
 import InventoryItems from './pages/admin/inventory/InventoryItems'
 import ClosingStock from './pages/admin/inventory/ClosingStock'
@@ -92,6 +93,9 @@ const adminRoutes: R[] = [
   { path: 'accounting/books', module: 'accounts', el: <AccountBooks /> }, // Display More Reports → Account Books
   { path: 'accounting/tally', module: 'accounts', el: <Gateway /> },
   { path: 'accounting/mobikwik', module: 'sales', el: <MobikwikPayments /> },
+  { path: 'accounting/swiggy', module: 'accounts', el: <PartnerPayouts key="swiggy" partner="swiggy" /> },
+  { path: 'accounting/zomato', module: 'accounts', el: <PartnerPayouts key="zomato" partner="zomato" /> },
+  { path: 'accounting/rapido', module: 'accounts', el: <PartnerPayouts key="rapido" partner="rapido" /> },
   { path: 'accounting/reconcile', module: 'accounts', el: <WeeklyStatement /> },
   { path: 'accounting/documents', module: 'accounts', el: <Documents /> },
   { path: 'accounting/aggregator', module: 'accounts', el: <AggregatorRecon /> },
