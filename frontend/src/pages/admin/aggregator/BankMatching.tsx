@@ -1,3 +1,4 @@
+import { recordBankStatement } from '../../../data/uploads'
 import { useRef, useState } from 'react'
 import { Link2, Upload, Wand2 } from 'lucide-react'
 import { Button, Card, Table, inputCls } from '../../../components/ui'
@@ -25,6 +26,7 @@ export default function BankMatching({ R, by, canEdit }: { R: Recon; by: string;
       const s = await readBankStatement(f)
       if (!s.lines.length) return setMsg({ ok: false, text: s.note })
       const { added, skipped } = importLines(bank, s.lines, f.name, by)
+      void recordBankStatement(f, bank, s, by)
       const n = autoMatch(R.weeks, bankLinesNow(), by)
       setMsg({ ok: true, text: `${s.note} ${added} new line(s)${skipped ? `, ${skipped} already uploaded` : ''}. ${n ? `${n} Zomato credit(s) matched automatically.` : 'No credit could be matched on evidence; match by hand below.'}` })
     } catch (e) { setMsg({ ok: false, text: `Could not read this file: ${e instanceof Error ? e.message : String(e)}` }) }

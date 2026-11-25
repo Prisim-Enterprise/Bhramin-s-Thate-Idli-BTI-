@@ -9,6 +9,7 @@ import { inMonth, niceDate } from '../../../data/entries'
 import { BRANCHES, branchName, inr } from '../../../data/mock'
 import { payDays, saveSplit, saveSplits, usePaySplits, type PayDay } from '../../../data/settlements'
 import { readMobikwikFile } from '../../../lib/readMobikwik'
+import { recordUpload } from '../../../data/uploads'
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
@@ -67,6 +68,12 @@ export default function MobikwikPayments() {
     if (!r.ok) return setNote({ ok: false, text: r.reason })
     const now = new Date().toISOString(), by = auth.email ?? 'Demo user'
     saveSplits(r.days.map((d) => ({ branch: d.branch, date: d.date, upi: d.upi, card: d.card, report: d.total, payments: d.payments, file: file.name, addedBy: by, addedAt: now })))
+    const all = r2(r.days.reduce((t, d) => t + d.total, 0))
+    void recordUpload(file, {
+      id: `mobikwik:${r.from}:${r.to}`, kind: 'mobikwik', date: r.to, from: r.from !== r.to ? r.from : undefined, amount: all,
+      summary: `Mobikwik report: ${r.days.reduce((t, d) => t + d.payments, 0).toLocaleString("en-IN")} payments, ₹${all.toLocaleString('en-IN')}, ${r.days.length} outlet-day(s)`,
+      link: '/admin/accounting/mobikwik', uploadedBy: by,
+    })
     const book = new Map(R.d.entries.map((e) => [e.branch + ':' + e.date, e.mobikwik]))
     const key = (d: { branch: string; date: string }) => d.branch + ':' + d.date
     const agree = r.days.filter((d) => book.has(key(d)) && Math.abs(book.get(key(d))! - d.total) <= 1).length

@@ -78,6 +78,8 @@ export const KIND_RULES: Record<string, { write: [ModuleId, Action[]][]; remove:
   // Bank reconciliation: bank dates on vouchers, and the bank statement lines uploaded to match against.
   bankRecos: { write: [['accounts', ['create', 'edit', 'approve']]], remove: [['accounts', ['edit', 'delete']]] },
   bankLines: { write: [['accounts', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']]] },
+  // Uploaded originals (Imprest Books, Cash Books, bank statements, Mobikwik reports), listed on Accounting → Documents.
+  uploads: { write: [['accounts', ['create', 'edit']], ['sales', ['edit']]], remove: [['accounts', ['delete', 'edit']]] },
   // Opening BRS: cheques and deposits from before the books started that the bank hadn't cleared.
   bankOpening: { write: [['accounts', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']]] },
   // Partner terms: commission agreed with Swiggy / Zomato / … and the approved advertisement budget (set by approvers).

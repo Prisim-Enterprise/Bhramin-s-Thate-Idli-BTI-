@@ -1,3 +1,4 @@
+import { recordBankStatement } from '../../../data/uploads'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { branchName } from '../../../data/mock'
 import { particulars } from '../../../data/books'
@@ -54,6 +55,7 @@ export function BankReco({ books, ledger, asOn: asOn0, by, canEdit, onNewVoucher
       const s = await readBankStatement(f)
       if (!s.lines.length) return setMsg({ tone: 'warn', text: s.note })
       const { added, skipped } = importLines(ledger, s.lines, f.name, by)
+      void recordBankStatement(f, ledger, s, by)
       setMsg({ tone: 'ok', text: `${s.note} ${added} new${skipped ? `, ${skipped} already uploaded` : ''}${s.from ? ` (${tDate(s.from)} to ${tDate(s.to)})` : ''}. Matching them with the books now.` })
       if (s.to && s.to > asOn) setAsOn(s.to)
     } catch (e) {

@@ -11,6 +11,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { pdfLines, readImprestPdf } from '../lib/readImprestPdf'
 import { isCashBook } from '../lib/readCashBook'
+import { recordUpload, uploadsNow } from '../data/uploads'
 import { debitLines, groupOf, reportOf, useCustomLedgers, useManualVouchers } from '../data/ledgerStore'
 import { imprestLedger } from '../data/books'
 
@@ -38,6 +39,10 @@ async function importCashBook(file: File, text: string[], by: string): Promise<U
   const before = cashBalanceBefore(r.from)
   const p = postCashBook(r, by, file.name)
   const link = { to: `/admin/accounting/books?book=ledger&ledger=${encodeURIComponent(CASH_LEDGER)}`, label: 'Open Cash' }
+  await recordUpload(file, {
+    id: `cashbook:${r.from}:${r.to}`, kind: 'cashbook', date: r.to, from: r.from !== r.to ? r.from : undefined, branch: 'CK', amount: r.totalOut,
+    summary: `Cash Book: ${r.vouchers.length} vouchers, in ${inr(r.totalIn)}, out ${inr(r.totalOut)}, closing ${signed(r.closing ?? 0)}`, link: link.to, uploadedBy: by,
+  })
   const opening = Math.abs(before - r.opening) < 0.01 ? ' Opening balance agrees with the books ✓.'
     : ` Opening balance on the Cash Book is ${signed(r.opening)}, the books have ${signed(before)} before ${niceDate(r.from)}: enter the Cash ledger's opening balance or the earlier days' Cash Books.`
   if (!p.posted) return { file: file.name, outcome: 'duplicate', text: `Cash Book ${when}: all ${p.already} vouchers are already posted.`, link }
@@ -59,14 +64,28 @@ export async function importImprest(file: File, by: string): Promise<Upload> {
   const what = `${branchName(e.branch)} · ${niceDate(e.date)}`
   // Never guess the branch: if the PDF doesn't say, open it so the branch can be picked.
   if (!r.branchFound) return { file: file.name, outcome: 'check', entry: e, text: `${niceDate(e.date)}: couldn't tell which branch this Imprest Book is for. Pick the branch, then save.` }
+  // The original PDF is kept (Accounting → Documents), one per outlet and day.
+  const keep = (savedId?: string) => recordUpload(file, {
+    id: `imprest:${e.branch}:${e.date}`, kind: 'imprest', date: e.date, branch: e.branch, amount: e.sales,
+    summary: `Imprest Book: sales ${inr(e.sales)}, Mobikwik ${inr(e.mobikwik)}, Swiggy ${inr(e.swiggy)}, Zomato ${inr(e.zomato)}, paid out ${inr(paidOut(e))}`,
+    link: savedId ? `/admin/accounting/entry/${savedId}` : '/admin/accounting', uploadedBy: by,
+  })
   const dup = findDuplicate(e.branch, e.date)
-  if (dup) return { file: file.name, outcome: 'duplicate', text: `${what} is already entered. Open it to compare, or Replace it with this PDF.`, entry: e, savedId: dup.id }
+  if (dup) {
+    if (!uploadsNow().some((u) => u.id === `imprest:${e.branch}:${e.date}`)) await keep(dup.id)
+    return { file: file.name, outcome: 'duplicate', text: `${what} is already entered. Open it to compare, or Replace it with this PDF.`, entry: e, savedId: dup.id }
+  }
   if (r.balanced === false) {
+    await keep()
     return { file: file.name, outcome: 'check', entry: e,
       text: `${what}: our total comes to ${inr(closing(e))} but the PDF's closing balance is ${inr(r.printedClosing ?? 0)}. Check the figures before saving.` }
   }
-  if (r.skipped.length) return { file: file.name, outcome: 'check', entry: e, text: `${what}: ${r.skipped.length} line(s) could not be read. Check before saving.` }
+  if (r.skipped.length) {
+    await keep()
+    return { file: file.name, outcome: 'check', entry: e, text: `${what}: ${r.skipped.length} line(s) could not be read. Check before saving.` }
+  }
   const saved = saveEntry(e, by)
+  await keep(saved.id)
   const paid = paidOut(e)
   return {
     file: file.name, outcome: 'saved', savedId: saved.id,
