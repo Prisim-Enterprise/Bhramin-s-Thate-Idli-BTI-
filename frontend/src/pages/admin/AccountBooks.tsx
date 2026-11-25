@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, BookText, CheckCircle2, ChevronDown, ChevronRight, Paperclip, Plus, Search, Trash2 } from 'lucide-react'
 import { Button, Card, EmptyState, inputCls } from '../../components/ui'
@@ -35,6 +35,16 @@ export default function AccountBooks() {
   const [branch, setBranch] = useState('ALL')
   const [book, setBook] = useState<BookId>((params.get('book') as BookId) || 'cash')
   const [ledger, setLedger] = useState(params.get('ledger') ?? '')
+  // ?book=cash&cash=Cash opens one cash or bank book (Accounting → Cash Book, and the Cash Book upload's "Open Cash").
+  const [cashPick, setCashPick] = useState(params.get('cash') ?? '')
+  // Following a menu link while already on this page changes only the address: follow it.
+  const q = params.toString()
+  useEffect(() => {
+    const b = params.get('book') as BookId | null
+    if (b) setBook(b)
+    if (params.get('ledger')) setLedger(params.get('ledger')!)
+    setCashPick(params.get('cash') ?? '')
+  }, [q]) // eslint-disable-line react-hooks/exhaustive-deps
   const [group, setGroup] = useState<GroupId>('indirectExp')
 
   const manualAll = useManualVouchers()
@@ -98,7 +108,7 @@ export default function AccountBooks() {
             </Card>
           ) : (
             <Card title={`${LABEL[book]} · ${scope}`} pad={false}>
-              {book === 'cash' && <CashBook branch={branch} entries={all} vouchers={vouchers} onBranch={setBranch} />}
+              {book === 'cash' && <CashBook branch={branch} entries={all} vouchers={vouchers} onBranch={setBranch} custom={custom} pick={cashPick} setPick={setCashPick} />}
               {book === 'ledger' && <LedgerBook vouchers={vouchers} allVouchers={allVouchers} custom={custom} branch={branch} ledger={ledger} setLedger={setLedger} />}
               {book === 'groupSummary' && <GroupSummary vouchers={vouchers} onLedger={openLedger} />}
               {book === 'groupVouchers' && <GroupVouchers vouchers={vouchers} group={group} setGroup={setGroup} />}
@@ -142,12 +152,72 @@ function otherSide(v: Voucher, ledger: string): string {
   return others.length === 1 ? others[0].ledger : '(as per details)'
 }
 
-function CashBook({ branch, entries, vouchers, onBranch }: { branch: string; entries: DayEntry[]; vouchers: Voucher[]; onBranch: (b: string) => void }) {
+/** One cash or bank ledger's book: every voucher touching it, with the running balance (as Tally's Cash/Bank Book). */
+function MoneyBook({ name, opening, vouchers, onBack }: { name: string; opening: number; vouchers: Voucher[]; onBack: () => void }) {
+  const k = ledgerKey(name)
+  const m = vouchers.flatMap((v) => v.postings.filter((p) => ledgerKey(p.ledger) === k).map((p) => ({ v, p }))).sort((a, b) => a.v.date.localeCompare(b.v.date))
+  let bal = opening
+  return (
+    <div data-testid="money-book">
+      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 text-sm">
+        <b className="text-slate-900">{name}</b>
+        <button className="font-medium text-[#7a2228] hover:underline" onClick={onBack}>← All cash and bank books</button>
+      </div>
+      {!m.length ? <Empty text={`No entries in ${name} yet.`} /> : (
+        <T head={['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit', 'Balance']} right={[3, 4, 5, 6]}>
+          <tr className="bg-slate-50/60">
+            <td>{niceDate(m[0].v.date)}</td><td className="font-semibold">Opening Balance</td><td /><td /><td className={R}>{opening > 0 ? amt(opening) : ''}</td><td className={R}>{opening < 0 ? amt(-opening) : ''}</td><td className={R}>{drCr(bal)}</td>
+          </tr>
+          {m.map(({ v, p }, i) => {
+            bal += p.dr - p.cr
+            return (
+              <tr key={v.id + ':' + i}>
+                <td>{niceDate(v.date)}</td><td>{otherSide(v, p.ledger)}</td><td>{v.type}</td><td className={R}>{v.no}</td>
+                <td className={R}>{amt(p.dr)}</td><td className={R}>{amt(p.cr)}</td><td className={R}>{drCr(bal)}</td>
+              </tr>
+            )
+          })}
+          <tr className="bg-slate-50 font-semibold">
+            <td colSpan={4}>Closing Balance</td>
+            <td className={R}>{amt(m.reduce((s, x) => s + x.p.dr, 0))}</td><td className={R}>{amt(m.reduce((s, x) => s + x.p.cr, 0))}</td><td className={R}>{drCr(bal)}</td>
+          </tr>
+        </T>
+      )}
+    </div>
+  )
+}
+
+function CashBook({ branch, entries, vouchers, onBranch, custom, pick, setPick }: {
+  branch: string; entries: DayEntry[]; vouchers: Voucher[]; onBranch: (b: string) => void
+  custom: CustomLedger[]; pick: string; setPick: (l: string) => void
+}) {
   const moves = (b: string) => vouchers.flatMap((v) => v.postings.filter((p) => p.ledger === imprestLedger(b)).map((p) => ({ v, p })))
+  // Head-office Cash (the Tally Cash Book) and the bank accounts: every cash / bank / OD ledger that isn't an outlet imprest.
+  const imprests = new Set(BRANCHES.map((b) => ledgerKey(imprestLedger(b.id))))
+  const money = custom.filter((l) => (l.group === 'cash' || l.group === 'bank' || l.group === 'bankOD') && !imprests.has(ledgerKey(l.name)))
+    .sort((a, b) => (a.group === 'cash' ? 0 : 1) - (b.group === 'cash' ? 0 : 1) || a.name.localeCompare(b.name))
+  const picked = money.find((l) => ledgerKey(l.name) === ledgerKey(pick))
+  if (picked) return <MoneyBook name={picked.name} opening={picked.opening} vouchers={vouchers} onBack={() => setPick('')} />
 
   if (branch === 'ALL') {
+    const sums = (name: string) => {
+      const k = ledgerKey(name), ps = vouchers.flatMap((v) => v.postings.filter((p) => ledgerKey(p.ledger) === k))
+      return { n: ps.length, d: ps.reduce((s, p) => s + p.dr, 0), c: ps.reduce((s, p) => s + p.cr, 0) }
+    }
     return (
-      <T head={['Branch', 'Vouchers', 'Opening', 'Cash in (Dr)', 'Paid out (Cr)', 'Closing']} right={[1, 2, 3, 4, 5]}>
+      <T head={['Cash / bank book', 'Vouchers', 'Opening', 'In (Dr)', 'Out (Cr)', 'Closing']} right={[1, 2, 3, 4, 5]}>
+        {money.map((l) => {
+          const s = sums(l.name)
+          return (
+            <tr key={'m:' + l.name} data-testid="money-row" onClick={() => setPick(l.name)} className="cursor-pointer hover:bg-[#fbf3e4]">
+              <td className="font-medium text-slate-900">{l.name}<span className="ml-2 text-xs font-normal text-slate-400">{l.group === 'cash' ? 'Cash Book' : l.group === 'bankOD' ? 'Bank OD' : 'Bank'}</span></td>
+              <td className={R}>{s.n || '—'}</td><td className={R}>{drCr(l.opening)}</td>
+              <td className={R}>{amt(s.d)}</td><td className={R}>{amt(s.c)}</td>
+              <td className={R + ' font-medium'}>{drCr(l.opening + s.d - s.c)}</td>
+            </tr>
+          )
+        })}
+        {money.length > 0 && <tr><td colSpan={6} className="bg-slate-50 !py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Outlet imprest cash</td></tr>}
         {BRANCHES.map((b) => {
           const m = moves(b.id)
           const open = openingOf(b.id, entries)

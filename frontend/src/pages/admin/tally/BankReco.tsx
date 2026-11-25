@@ -1,3 +1,5 @@
+import { matchPayouts, mkLedger, useMkPayouts } from '../../../data/mobikwikPayouts'
+import { bankLinesNow } from '../../../data/banking'
 import { recordBankStatement } from '../../../data/uploads'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { branchName } from '../../../data/mock'
@@ -21,6 +23,7 @@ export function BankReco({ books, ledger, asOn: asOn0, by, canEdit, onNewVoucher
 }) {
   const recos = useBankRecos()
   const settlements = useSettlements()
+  const mkPayouts = useMkPayouts()
   const allLines = useBankLines()
   const openItems = useBankOpening()
   const company = useCompany()
@@ -56,6 +59,7 @@ export function BankReco({ books, ledger, asOn: asOn0, by, canEdit, onNewVoucher
       if (!s.lines.length) return setMsg({ tone: 'warn', text: s.note })
       const { added, skipped } = importLines(ledger, s.lines, f.name, by)
       void recordBankStatement(f, ledger, s, by)
+      matchPayouts(bankLinesNow()) // Mobikwik payouts waiting for this statement
       setMsg({ tone: 'ok', text: `${s.note} ${added} new${skipped ? `, ${skipped} already uploaded` : ''}${s.from ? ` (${tDate(s.from)} to ${tDate(s.to)})` : ''}. Matching them with the books now.` })
       if (s.to && s.to > asOn) setAsOn(s.to)
     } catch (e) {
@@ -125,7 +129,12 @@ ${r.extra.length ? `<h3>On the bank statement, not in the books</h3><table><tr><
     })
   }
   // A Swiggy / Zomato payout already matched to its weekly statement goes to that partner's ledger for the outlet.
-  function payoutOf(l: BankLine) { const st = settlements.find((x) => x.bankLineId === l.id); return st ? partnerLedger(st.partner, st.branch) : undefined }
+  function payoutOf(l: BankLine) {
+    const st = settlements.find((x) => x.bankLineId === l.id)
+    if (st) return partnerLedger(st.partner, st.branch)
+    const mk = mkPayouts.find((x) => x.bankLineId === l.id) // a Mobikwik payout, matched by its UTR
+    return mk?.branch ? mkLedger(mk.branch) : undefined
+  }
   const matchTo = (l: BankLine, voucherId: string) => { setBankDate(voucherId, ledger, l.date, by, l.id); setMsg({ tone: 'ok', text: `Matched with the statement line of ${tDate(l.date)}.` }) }
   const open = entries.filter((e) => !e.reco)
 

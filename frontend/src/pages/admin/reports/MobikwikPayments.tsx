@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Banknote, CreditCard, FileUp, Loader2, Smartphone, Wallet } from 'lucide-react'
 import { EmptyReport, ReportHeader, ScopePicker, Tile, downloadCsv, money } from '../../../components/report'
 import { Badge, inputCls } from '../../../components/ui'
@@ -10,6 +10,8 @@ import { BRANCHES, branchName, inr } from '../../../data/mock'
 import { payDays, saveSplit, saveSplits, usePaySplits, type PayDay } from '../../../data/settlements'
 import { readMobikwikFile } from '../../../lib/readMobikwik'
 import { recordUpload } from '../../../data/uploads'
+import { matchPayouts, savePayouts, useMkPayouts, type MkPayout } from '../../../data/mobikwikPayouts'
+import { bankLinesNow, useBankLines } from '../../../data/banking'
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
@@ -31,6 +33,72 @@ function SplitCells({ d, editable, by }: { d: PayDay; editable: boolean; by: str
       <td><input type="number" step="0.01" aria-label={`Card ${d.branch} ${d.date}`} className={box} placeholder="N/A" value={card}
         onChange={(e) => setCard(e.target.value)} onBlur={() => save(upi, card)} /></td>
     </>
+  )
+}
+
+/** Mobikwik payouts (from its Settlement Reports): what it kept and whether each payout reached the bank. */
+function Payouts({ branch }: { branch: string }) {
+  const all = useMkPayouts(), lines = useBankLines()
+  useEffect(() => { if (all.some((p) => !p.bankLineId)) matchPayouts(lines) }, [all, lines])
+  const months = useMemo(() => [...new Set(all.map((p) => p.settledOn.slice(0, 7)))].sort().reverse(), [all])
+  const [picked, setPicked] = useState('')
+  const month = picked && months.includes(picked) ? picked : months[0] ?? ''
+  const rows = all.filter((p) => p.settledOn.startsWith(month) && (!branch || p.branch === branch))
+    .sort((a, b) => b.settledOn.localeCompare(a.settledOn) || (a.branch ? branchName(a.branch) : '').localeCompare(b.branch ? branchName(b.branch) : ''))
+  if (!months.length) return (
+    <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-600">
+      <b>Payouts and bank:</b> upload Mobikwik's <b>Settlement Report</b> (not the Transactions Report) to see each day's payout per outlet, Mobikwik's fee and GST, and whether the money reached the bank (matched by UTR).
+    </div>
+  )
+  const s = (f: (p: MkPayout) => number) => r2(rows.reduce((t, p) => t + f(p), 0))
+  const collected = s((p) => p.collected), kept = s((p) => p.fee + p.gst + p.other), paid = s((p) => p.paid)
+  const banked = r2(rows.filter((p) => p.bankLineId).reduce((t, p) => t + p.paid, 0)), waiting = rows.filter((p) => !p.bankLineId)
+  return (
+    <div className="mt-5 rounded-xl border border-slate-200 bg-white" data-testid="mk-payouts">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+        <p className="text-sm font-semibold text-slate-900">Payouts and bank</p>
+        <select aria-label="Payout month" className={inputCls + ' !w-auto !py-1'} value={month} onChange={(e) => setPicked(e.target.value)}>
+          {months.map((m) => <option key={m} value={m}>{monthName(m)}</option>)}
+        </select>
+      </div>
+      <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Tile label="Collected (UPI + card)" value={money(collected)} note={`${rows.length} payout(s) in ${monthName(month)}`} />
+        <Tile label="Mobikwik kept" value={money(kept)} note={`fee, GST and rentals · ${collected ? r2((kept / collected) * 100) : 0}%`} />
+        <Tile label="Paid out" value={money(paid)} note="after Mobikwik's charges" />
+        <Tile label="Found in the bank" value={money(banked)} note={waiting.length ? `${waiting.length} payout(s) not in an uploaded bank statement yet` : 'every payout found ✓'} tone={waiting.length ? 'amber' : 'green'} />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1000px] text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr>{['Paid on', 'Outlet', 'Sales of', 'Type', 'Collected', 'Fee', 'GST', 'Rentals / other', 'Paid', 'UTR', 'In the bank'].map((h) => <th key={h} className="px-3 py-2.5 font-semibold">{h}</th>)}</tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 [&_td]:px-3 [&_td]:py-2">
+            {rows.map((p) => (
+              <tr key={p.id} data-testid="mk-payout">
+                <td className="whitespace-nowrap">{niceDate(p.settledOn)}</td>
+                <td className="whitespace-nowrap">{p.branch ? branchName(p.branch) : <span className="text-amber-700">{p.alias ?? p.mid}</span>}</td>
+                <td className="whitespace-nowrap">{p.salesDate ? niceDate(p.salesDate) : '—'}</td>
+                <td>{p.kind === 'card' ? 'Card' : 'UPI'}{p.payments ? <span className="block text-xs text-slate-400">{p.payments} payments</span> : null}</td>
+                <td className="tabular-nums">{inr(p.collected)}</td>
+                <td className="tabular-nums">{inr(p.fee)}</td>
+                <td className="tabular-nums">{inr(p.gst)}</td>
+                <td className="tabular-nums">{p.other ? inr(p.other) : '—'}</td>
+                <td className="font-medium tabular-nums">{inr(p.paid)}</td>
+                <td className="text-xs text-slate-500">{p.utr}</td>
+                <td className="whitespace-nowrap">{p.bankLineId ? <Badge tone="green">{`${niceDate(p.receivedOn!)} · ${(p.receivedFrom ?? '').replace(/ A\/c.*$/, '')}`}</Badge> : <Badge tone="amber">not in bank yet</Badge>}</td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan={11} className="!py-6 text-center text-slate-500">No payouts{branch ? ` for ${branchName(branch)}` : ''} in {monthName(month)}.</td></tr>}
+          </tbody>
+          {rows.length > 0 && (
+            <tfoot className="border-t-2 border-slate-200 font-semibold [&_td]:px-3 [&_td]:py-2.5">
+              <tr><td colSpan={4}>Total</td><td className="tabular-nums">{inr(collected)}</td><td className="tabular-nums">{inr(s((p) => p.fee))}</td><td className="tabular-nums">{inr(s((p) => p.gst))}</td><td className="tabular-nums">{inr(s((p) => p.other))}</td><td className="tabular-nums">{inr(paid)}</td><td colSpan={2} /></tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      <p className="px-4 py-3 text-xs text-slate-500">Mobikwik pays each outlet's UPI and card money separately, usually the next day. Its charges are posted as a Journal (Dr Mobikwik Charges and Input GST, Cr Mobikwik - outlet); the money itself is entered from Bank Reconciliation, where a matched credit's Enter Receipt is filled in with the outlet's Mobikwik ledger.</p>
+    </div>
   )
 }
 
@@ -69,9 +137,15 @@ export default function MobikwikPayments() {
     const now = new Date().toISOString(), by = auth.email ?? 'Demo user'
     saveSplits(r.days.map((d) => ({ branch: d.branch, date: d.date, upi: d.upi, card: d.card, report: d.total, payments: d.payments, file: file.name, addedBy: by, addedAt: now })))
     const all = r2(r.days.reduce((t, d) => t + d.total, 0))
+    // A Settlement Report also carries each payout: saved, matched to the bank by UTR, and its charges posted.
+    const pays = r.payouts?.length ? savePayouts(r.payouts, file.name, by, bankLinesNow()) : []
+    const settled = pays.length ? pays.map((p) => p.settledOn).sort() : []
     void recordUpload(file, {
-      id: `mobikwik:${r.from}:${r.to}`, kind: 'mobikwik', date: r.to, from: r.from !== r.to ? r.from : undefined, amount: all,
-      summary: `Mobikwik report: ${r.days.reduce((t, d) => t + d.payments, 0).toLocaleString("en-IN")} payments, ₹${all.toLocaleString('en-IN')}, ${r.days.length} outlet-day(s)`,
+      id: pays.length ? `mobikwik-settlement:${settled[0]}:${settled[settled.length - 1]}` : `mobikwik:${r.from}:${r.to}`, kind: 'mobikwik',
+      date: pays.length ? settled[settled.length - 1] : r.to, from: pays.length ? (settled[0] !== settled[settled.length - 1] ? settled[0] : undefined) : r.from !== r.to ? r.from : undefined, amount: all,
+      summary: pays.length
+        ? `Mobikwik settlement: ${pays.length} payout(s) ₹${r2(pays.reduce((t, p) => t + p.paid, 0)).toLocaleString('en-IN')} for sales ₹${all.toLocaleString('en-IN')}, ${pays.filter((p) => p.bankLineId).length} found in the bank`
+        : `Mobikwik report: ${r.days.reduce((t, d) => t + d.payments, 0).toLocaleString('en-IN')} payments, ₹${all.toLocaleString('en-IN')}, ${r.days.length} outlet-day(s)`,
       link: '/admin/accounting/mobikwik', uploadedBy: by,
     })
     const book = new Map(R.d.entries.map((e) => [e.branch + ':' + e.date, e.mobikwik]))
@@ -79,9 +153,13 @@ export default function MobikwikPayments() {
     const agree = r.days.filter((d) => book.has(key(d)) && Math.abs(book.get(key(d))! - d.total) <= 1).length
     const differ = r.days.filter((d) => book.has(key(d)) && Math.abs(book.get(key(d))! - d.total) > 1)
     const noBook = r.days.length - agree - differ.length
-    const pays = r.days.reduce((t, d) => t + d.payments, 0), total = r.days.reduce((t, d) => t + d.total, 0)
+    const count = r.days.reduce((t, d) => t + d.payments, 0), total = r.days.reduce((t, d) => t + d.total, 0)
     const when = r.from === r.to ? niceDate(r.from) : `${niceDate(r.from)} – ${niceDate(r.to)}`
-    setNote({ ok: true, text: `Mobikwik report ${when}: ${pays.toLocaleString('en-IN')} payments, ${inr(r2(total))}, across ${r.days.length} outlet-day(s); UPI and card filled in.`
+    const inBank = pays.filter((p) => p.bankLineId), kept = r2(pays.reduce((t, p) => t + p.fee + p.gst + p.other, 0))
+    const payoutNote = pays.length
+      ? ` Settlement: ${pays.length} payout(s), ${inr(r2(pays.reduce((t, p) => t + p.paid, 0)))} paid after Mobikwik's charges of ${inr(kept)} (posted to Mobikwik Charges and Input GST); ${inBank.length} found in the bank by UTR${pays.length - inBank.length ? `, ${pays.length - inBank.length} not in an uploaded bank statement yet` : ''}.`
+      : ''
+    setNote({ ok: true, text: `Mobikwik ${pays.length ? 'settlement report' : 'report'}, sales of ${when}: ${count.toLocaleString('en-IN')} payments, ${inr(r2(total))}, across ${r.days.length} outlet-day(s); UPI and card filled in.` + payoutNote
       + ` Against the Imprest Books: ${agree} agree${differ.length ? `, ${differ.length} differ (${differ.slice(0, 3).map((d) => `${branchName(d.branch)} ${niceDate(d.date)}: report ${inr(d.total)} vs book ${inr(book.get(key(d))!)}`).join('; ')})` : ''}${noBook ? `, ${noBook} have no Imprest Book yet (checked when it is uploaded)` : ''}.`
       + (r.unmatched.length ? ` Not an outlet, left out: ${r.unmatched.map((u) => `${u.name} ${inr(u.total)} (${u.payments} payments)`).join('; ')}.` : '')
       + (r.failed ? ` ${r.failed} failed payment(s) ignored.` : '') })
@@ -100,7 +178,7 @@ export default function MobikwikPayments() {
   const banner = note && <p role="status" className={`mb-4 rounded-lg px-3 py-2 text-sm ${note.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-700'}`}>{note.text}</p>
   const picker = <ScopePicker months={R.months} month={R.month} setMonth={R.setMonth} branch={R.branch} setBranch={R.setBranch} monthName={monthName} branches={BRANCHES.filter((b) => b.id !== 'CK')} />
 
-  if (!days.length) return <div>{banner}<EmptyReport title="Mobikwik Payments" period={R.label} icon={Wallet} actions={<>{picker}{upload}</>} text="Cash, UPI and card figures appear once Imprest Books are uploaded for this period. The Mobikwik report then fills in UPI and card for those days." /></div>
+  if (!days.length) return <div>{banner}<EmptyReport title="Mobikwik Payments" period={R.label} icon={Wallet} actions={<>{picker}{upload}</>} text="Cash, UPI and card figures appear once Imprest Books are uploaded for this period. The Mobikwik report then fills in UPI and card for those days." /><Payouts branch={R.branch} /></div>
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -165,6 +243,7 @@ export default function MobikwikPayments() {
           </table>
         </div>
       </div>
+      <Payouts branch={R.branch} />
     </div>
   )
 }

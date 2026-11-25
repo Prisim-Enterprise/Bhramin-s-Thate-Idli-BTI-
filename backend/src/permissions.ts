@@ -71,6 +71,8 @@ export const KIND_RULES: Record<string, { write: [ModuleId, Action[]][]; remove:
   indents: { write: [['indent', ['create', 'edit', 'approve']]], remove: [['indent', ['delete', 'edit']]] },
   // Mobikwik: UPI / card split of each day's Mobikwik takings (kept under the outlet's branch).
   paySplits: { write: [['accounts', ['create', 'edit']], ['sales', ['edit']]], remove: [['accounts', ['delete', 'edit']]] },
+  // Mobikwik payouts from its Settlement Report (fees, UTR, matched bank credit); their charges post a Journal.
+  mkPayouts: { write: [['accounts', ['create', 'edit']]], remove: [['accounts', ['delete', 'edit']]] },
   // Weekly partner statements (Swiggy, Zomato, Rapido, Mobikwik): deductions approved, receipts matched.
   settlements: { write: [['accounts', ['create', 'edit', 'approve']]], remove: [['accounts', ['delete', 'edit']]] },
   // The company master (Gateway of Tally → Company Creation / Alteration): one record.

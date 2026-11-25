@@ -6,7 +6,7 @@ import AccountMenu from './AccountMenu'
 import StockAlerts from './StockAlerts'
 import { DashboardsOffBanner } from './DashboardPower'
 import {
-  ScanLine, BookOpenCheck, ClipboardList, Warehouse, ShoppingCart, Store, Settings2, Building2, IndianRupee, Receipt, Cpu, PackagePlus, MinusCircle, Wallet, Users, ShieldCheck, Plug, Scale, Calculator, Library, ChevronRight, ChefHat, Menu, X, LogOut, CreditCard, FileCheck2, type LucideIcon, Truck, ArrowLeftRight, Activity, Network, PanelLeftClose, PanelLeftOpen, Landmark, FolderOpen } from 'lucide-react'
+  ScanLine, BookOpenCheck, ClipboardList, Warehouse, ShoppingCart, Store, Settings2, Building2, IndianRupee, Receipt, Cpu, PackagePlus, MinusCircle, Wallet, Users, ShieldCheck, Plug, Scale, Calculator, Library, ChevronRight, ChefHat, Menu, X, LogOut, CreditCard, FileCheck2, type LucideIcon, Truck, ArrowLeftRight, Activity, Network, PanelLeftClose, PanelLeftOpen, Landmark, FolderOpen, BookText, Banknote } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { IS_DEMO } from '../config'
@@ -54,6 +54,8 @@ export const HUBS: Record<HubId, { label: string; icon: LucideIcon; to: string; 
     label: 'Accounting', icon: Calculator, to: '/admin/accounting', subtitle: 'Pick a report to open it',
     items: [
       { to: '/admin/accounting/tally', label: 'Gateway of Tally', icon: Library, module: 'accounts', desc: 'Company, ledgers, vouchers and Day Book, Tally style' },
+      { to: '/admin/accounting/books', label: 'Account Books', icon: BookText, module: 'accounts', desc: 'Cash and bank books, ledgers and registers' },
+      { to: '/admin/accounting/books?book=cash&cash=Cash', label: 'Cash Book', icon: Banknote, module: 'accounts', desc: 'Head-office cash from the Tally Cash Book, day by day' },
       { to: '/admin/accounting/pnl', label: 'Profit & Loss', icon: Scale, module: 'accounts', desc: 'Did we make money this month?' },
       { to: '/admin/accounting/sales', label: 'Sales Report', icon: IndianRupee, module: 'sales', desc: 'How much each outlet sold' },
       { to: '/admin/accounting/expenses', label: 'Expenses Report', icon: Receipt, module: 'expenses', desc: 'Where the money went' },

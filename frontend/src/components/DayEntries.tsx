@@ -38,7 +38,7 @@ async function importCashBook(file: File, text: string[], by: string): Promise<U
   }
   const before = cashBalanceBefore(r.from)
   const p = postCashBook(r, by, file.name)
-  const link = { to: `/admin/accounting/books?book=ledger&ledger=${encodeURIComponent(CASH_LEDGER)}`, label: 'Open Cash' }
+  const link = { to: `/admin/accounting/books?book=cash&cash=${encodeURIComponent(CASH_LEDGER)}`, label: 'Open Cash Book' }
   await recordUpload(file, {
     id: `cashbook:${r.from}:${r.to}`, kind: 'cashbook', date: r.to, from: r.from !== r.to ? r.from : undefined, branch: 'CK', amount: r.totalOut,
     summary: `Cash Book: ${r.vouchers.length} vouchers, in ${inr(r.totalIn)}, out ${inr(r.totalOut)}, closing ${signed(r.closing ?? 0)}`, link: link.to, uploadedBy: by,
