@@ -153,8 +153,13 @@ export function setBankDate(voucherId: string, ledger: string, bankDate: string 
 /** Add a statement's lines for this bank. Lines already uploaded are skipped. */
 export function importLines(ledger: string, stmt: StatementLine[], file: string, by: string) {
   const have = new Set(lines.get().map((l) => l.id))
+  // The same line on two overlapping statements can be printed differently (a description cut by a page break),
+  // so a line with its running balance is also known by date, amounts and balance: that balance makes it unique.
+  const fp = (l: Pick<StatementLine, 'date' | 'withdrawal' | 'deposit' | 'balance'>) => l.balance == null ? null : `${ledgerKey(ledger)}|${l.date}|${l.withdrawal}|${l.deposit}|${l.balance}`
+  const haveFp = new Set(lines.get().filter((l) => ledgerKey(l.ledger) === ledgerKey(ledger)).map(fp).filter(Boolean) as string[])
   const at = new Date().toISOString()
-  const fresh = stmt.map((l) => ({ ...l, id: lineId(ledger, l), ledger, file, importedBy: by, importedAt: at })).filter((l) => !have.has(l.id))
+  const fresh = stmt.map((l) => ({ ...l, id: lineId(ledger, l), ledger, file, importedBy: by, importedAt: at }))
+    .filter((l) => !have.has(l.id) && !(fp(l) && haveFp.has(fp(l)!)))
   // Two identical lines on the same day (two equal charges) both stay.
   const seen = new Map<string, number>()
   for (const l of fresh) { const n = (seen.get(l.id) ?? 0) + 1; seen.set(l.id, n); if (n > 1) l.id += '#' + n }
